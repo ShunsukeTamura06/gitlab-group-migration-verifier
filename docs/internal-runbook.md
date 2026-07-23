@@ -143,26 +143,21 @@ SourceとDestinationへ同時接続できない場合は、自動`migrate-tree`�
 Source接続中:
 
 ```bash
-gitlab-migrator snapshot-group --source-group-id 123 \
-  --output work/manifests/source-123.json
-gitlab-migrator export-group --source-group-id 123
-# 配下Projectを棚卸し順にexport-project
+gitlab-migrator --poll-interval 20 --timeout 7200 export-tree \
+  --source-group-id 123 \
+  --manifest work/manifests/tree-123.json
 ```
 
 Destination接続へ切替後:
 
 ```bash
-gitlab-migrator import-group \
-  --archive work/exports/groups/123-engineering.tar.gz \
+gitlab-migrator --poll-interval 20 --timeout 7200 import-tree \
+  --manifest work/manifests/tree-123.json \
   --destination-name engineering \
   --destination-path engineering
-gitlab-migrator verify-snapshot \
-  --source-snapshot work/manifests/source-123.json \
-  --destination-group-id 456
-# Namespaceマッピングに従って各Projectをimport-project
 ```
 
-アーカイブを別Zoneへ搬送する場合は、SHA-256照合、暗号化、媒体管理、消去証跡を必須にします。
+`import-tree`は全ArchiveのサイズとSHA-256をImport前に再検証します。アーカイブを別Zoneへ搬送する場合は、暗号化、媒体管理、消去証跡も必須にします。
 
 ## 10. 採用条件
 

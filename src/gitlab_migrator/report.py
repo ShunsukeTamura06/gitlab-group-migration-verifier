@@ -10,6 +10,7 @@ from typing import Any
 def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
     """Group移行結果を判定根拠付きMarkdownとして保存する。"""
     verification = manifest.get("verification") or {}
+    project_verification = manifest.get("project_verification") or {}
     projects = manifest.get("projects") or []
     expected_project_count = int(
         (manifest.get("source") or {}).get("project_count") or 0
@@ -17,7 +18,9 @@ def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
     project_failures = [
         item for item in projects if item.get("verification_status") != "success"
     ]
-    if expected_project_count == 0:
+    if project_verification.get("status") == "failed":
+        project_result = "差異あり"
+    elif expected_project_count == 0:
         project_result = "対象なし"
     elif len(projects) == expected_project_count and not project_failures:
         project_result = "完全一致"
@@ -57,6 +60,20 @@ def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
         f"- Extra groups: {', '.join(extra) if extra else 'なし'}",
         f"- Changed groups: {len(changes)}件",
         f"- Project placement failures: {len(project_failures)}件",
+        (
+            "- Project count: "
+            f"source={project_verification.get('source_project_count', expected_project_count)}, "
+            f"destination={project_verification.get('destination_project_count', '未取得')}, "
+            f"matched={project_verification.get('matched_project_count', '未取得')}"
+        ),
+        (
+            "- Missing projects: "
+            f"{', '.join(project_verification.get('missing_projects') or []) or 'なし'}"
+        ),
+        (
+            "- Extra projects: "
+            f"{', '.join(project_verification.get('extra_projects') or []) or 'なし'}"
+        ),
         "",
         "## 根拠ファイル",
         "",

@@ -39,3 +39,7 @@ class ExistingGroupError(MigratorError):
 
 class HierarchyError(MigratorError):
     """Group階層に循環や重複がある場合の例外。"""
+
+
+class TreeVerificationError(MigratorError):
+    """GroupまたはProjectツリーの必須検証に失敗した場合の例外。"""

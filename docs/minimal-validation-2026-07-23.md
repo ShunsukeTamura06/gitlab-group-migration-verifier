@@ -2,6 +2,9 @@
 
 検証日: 2026-07-23
 
+> [!NOTE]
+> この最小検証後、8 Group・7 Projectの一括移行検証を完了した。後続結果は[全Project一括移行検証結果](full-project-validation-2026-07-23.md)を参照。
+
 ## 結論
 
 ```text
