@@ -1,0 +1,87 @@
+name: gitlab-migration-verification
+
+x-gitlab-common: &gitlab-common
+  platform: linux/amd64
+  restart: unless-stopped
+  shm_size: 256m
+  healthcheck:
+    test: ["CMD", "curl", "--fail", "--silent", "http://localhost/-/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 30
+    start_period: 10m
+
+services:
+  gitlab-source:
+    <<: *gitlab-common
+    image: gitlab/gitlab-ee:15.3.3-ee.0
+    container_name: gitlab-migration-source
+    hostname: gitlab-source.local
+    environment:
+      GITLAB_ROOT_PASSWORD: "${SOURCE_GITLAB_ROOT_PASSWORD:?SOURCE_GITLAB_ROOT_PASSWORD is required; copy .env.example to .env}"
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8081'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = 2221
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 5
+        postgresql['shared_buffers'] = '128MB'
+        postgresql['max_worker_processes'] = 4
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        node_exporter['enable'] = false
+        redis_exporter['enable'] = false
+        postgres_exporter['enable'] = false
+        gitlab_exporter['enable'] = false
+        registry['enable'] = false
+        gitlab_kas['enable'] = false
+        letsencrypt['enable'] = false
+    ports:
+      - "8081:80"
+      - "2221:22"
+    volumes:
+      - gitlab-source-config:/etc/gitlab
+      - gitlab-source-logs:/var/log/gitlab
+      - gitlab-source-data:/var/opt/gitlab
+
+  gitlab-destination:
+    <<: *gitlab-common
+    image: gitlab/gitlab-ee:19.1.1-ee.0
+    container_name: gitlab-migration-destination
+    hostname: gitlab-destination.local
+    environment:
+      GITLAB_ROOT_PASSWORD: "${DESTINATION_GITLAB_ROOT_PASSWORD:?DESTINATION_GITLAB_ROOT_PASSWORD is required; copy .env.example to .env}"
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8082'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 5
+        postgresql['shared_buffers'] = '128MB'
+        postgresql['max_worker_processes'] = 4
+        prometheus_monitoring['enable'] = false
+        alertmanager['enable'] = false
+        node_exporter['enable'] = false
+        redis_exporter['enable'] = false
+        postgres_exporter['enable'] = false
+        gitlab_exporter['enable'] = false
+        registry['enable'] = false
+        gitlab_kas['enable'] = false
+        letsencrypt['enable'] = false
+    ports:
+      - "8082:80"
+      - "2222:22"
+    volumes:
+      - gitlab-destination-config:/etc/gitlab
+      - gitlab-destination-logs:/var/log/gitlab
+      - gitlab-destination-data:/var/opt/gitlab
+
+volumes:
+  gitlab-source-config:
+  gitlab-source-logs:
+  gitlab-source-data:
+  gitlab-destination-config:
+  gitlab-destination-logs:
+  gitlab-destination-data:
