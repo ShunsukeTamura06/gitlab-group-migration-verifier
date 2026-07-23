@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from .bootstrap import MinimalGroupBootstrapper
+from .bootstrap import FullTreeBootstrapper, MinimalGroupBootstrapper
 from .auth import password_grant_token
 from .client import GitLabClient
 from .config import GitLabConfig
@@ -21,9 +21,10 @@ from .group_verifier import GroupVerifier
 from .manifest import ManifestStore, redact_secrets
 from .project_exporter import ProjectExporter
 from .project_importer import ProjectImporter
+from .project_verifier import ProjectTreeVerifier
 from .preflight import PreflightChecker
 from .report import write_markdown_report
-from .tree_migrator import TreeMigrator
+from .tree_migrator import TreeBundleExporter, TreeBundleImporter, TreeMigrator
 
 
 DEFAULT_EXPORT_DIR = Path("work/exports/groups")
@@ -52,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap = subparsers.add_parser("bootstrap-groups", help="最小検証用Groupデータを作成")
     bootstrap.add_argument("--name", default="migration-source")
     bootstrap.add_argument("--path", default="migration-source")
+    bootstrap_tree = subparsers.add_parser(
+        "bootstrap-tree",
+        help="複数階層と7 Projectを持つ一括移行検証データを作成",
+    )
+    bootstrap_tree.add_argument("--name", default="migration-full-source")
+    bootstrap_tree.add_argument("--path", default="migration-full-source")
 
     export = subparsers.add_parser("export-group", help="GroupをExport")
     export.add_argument("--source-group-id", type=int, required=True)
@@ -82,9 +89,30 @@ def build_parser() -> argparse.ArgumentParser:
     tree_project_mode.add_argument("--include-projects", action="store_true", default=True)
     tree_project_mode.add_argument("--exclude-projects", action="store_true")
 
+    export_tree = subparsers.add_parser(
+        "export-tree",
+        help="移行元からGroupと全Projectを一括Export",
+    )
+    export_tree.add_argument("--source-group-id", type=int, required=True)
+    export_tree.add_argument("--manifest", type=Path)
+    export_tree.add_argument("--exclude-projects", action="store_true")
+
+    import_tree = subparsers.add_parser(
+        "import-tree",
+        help="Export済みTree Bundleを移行先へ一括Importして検証",
+    )
+    import_tree.add_argument("--manifest", type=Path, required=True)
+    import_tree.add_argument("--destination-name")
+    import_tree.add_argument("--destination-path", required=True)
+    import_tree.add_argument("--destination-parent-id", type=int)
+    import_tree.add_argument("--reuse-existing-group", action="store_true")
+
     verify = subparsers.add_parser("verify-group", help="Group階層とGroupデータを比較")
     _add_verification_arguments(verify)
-    verify_tree = subparsers.add_parser("verify-tree", help="Groupツリーを比較")
+    verify_tree = subparsers.add_parser(
+        "verify-tree",
+        help="Group階層と配下の全Projectを比較",
+    )
     _add_verification_arguments(verify_tree)
 
     snapshot = subparsers.add_parser("snapshot-group", help="逐次検証用に移行元Groupを保存")
@@ -228,6 +256,11 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
         )
     if args.command == "bootstrap-groups":
         return MinimalGroupBootstrapper(source_client()).create(name=args.name, path=args.path)
+    if args.command == "bootstrap-tree":
+        return FullTreeBootstrapper(source_client()).create(
+            name=args.name,
+            path=args.path,
+        )
     if args.command == "export-group":
         result = GroupExporter(
             source_client(),
@@ -252,9 +285,9 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
         return asdict(result)
     if args.command == "migrate-group":
         if args.include_projects:
-            raise MigratorError(
-                "migrate-groupはGroup専用です。"
-                "Projectを含む全体移行にはmigrate-treeを使用してください"
+            return _run_tree_migration(
+                args,
+                include_projects=True,
             )
         source = source_client()
         source_group = source.get_json(f"/groups/{args.source_group_id}")
@@ -275,33 +308,79 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
             reuse_existing=args.reuse_existing_group,
         )
     if args.command == "migrate-tree":
-        source = source_client()
-        source_group = source.get_json(f"/groups/{args.source_group_id}")
-        destination_name = args.destination_name or str(
-            source_group.get("name", args.destination_path)
+        return _run_tree_migration(
+            args,
+            include_projects=not args.exclude_projects,
         )
-        manifest_path = args.manifest or DEFAULT_MANIFEST_DIR / f"tree-{args.source_group_id}.json"
-        return TreeMigrator(
-            source,
-            destination_client(),
+    if args.command == "export-tree":
+        manifest_path = (
+            args.manifest
+            or DEFAULT_MANIFEST_DIR / f"tree-{args.source_group_id}.json"
+        )
+        return TreeBundleExporter(
+            source_client(),
             group_export_dir=DEFAULT_EXPORT_DIR,
             project_export_dir=DEFAULT_PROJECT_EXPORT_DIR,
             manifest_path=manifest_path,
             poll_interval_seconds=args.poll_interval,
             timeout_seconds=args.timeout,
-        ).migrate(
+        ).export(
             args.source_group_id,
-            destination_name=destination_name,
+            include_projects=not args.exclude_projects,
+        )
+    if args.command == "import-tree":
+        manifest = ManifestStore(args.manifest).load()
+        source_snapshot = (manifest.get("source") or {}).get("group_snapshot")
+        if not isinstance(source_snapshot, dict):
+            raise MigratorError("Tree Manifestに移行元Group Snapshotがありません")
+        source_root = next(
+            node
+            for node in GroupVerifier.snapshot_nodes(source_snapshot)
+            if node.relative_path == "."
+        )
+        return TreeBundleImporter(
+            destination_client(),
+            manifest_path=args.manifest,
+            poll_interval_seconds=args.poll_interval,
+            timeout_seconds=args.timeout,
+        ).import_bundle(
+            destination_name=args.destination_name or source_root.name,
             destination_path=args.destination_path,
             destination_parent_id=args.destination_parent_id,
-            include_projects=not args.exclude_projects,
             reuse_existing_group=args.reuse_existing_group,
         )
-    if args.command in {"verify-group", "verify-tree"}:
+    if args.command == "verify-group":
         result = GroupVerifier(source_client(), destination_client()).verify(
             args.source_group_id, args.destination_group_id
         )
         payload = result.to_dict()
+        if args.output:
+            ManifestStore(args.output).save(payload)
+        return payload
+    if args.command == "verify-tree":
+        source = source_client()
+        destination = destination_client()
+        group_result = GroupVerifier(source, destination).verify(
+            args.source_group_id,
+            args.destination_group_id,
+        )
+        project_result = ProjectTreeVerifier.verify(
+            source,
+            destination,
+            args.source_group_id,
+            args.destination_group_id,
+        )
+        if project_result.status == "failed":
+            status = "failed"
+        elif group_result.status == "warning" or project_result.status == "warning":
+            status = "warning"
+        else:
+            status = "success"
+        payload = {
+            "status": status,
+            "group_verification": group_result.to_dict(),
+            "project_verification": project_result.to_dict(),
+        }
         if args.output:
             ManifestStore(args.output).save(payload)
         return payload
@@ -430,6 +509,39 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     raise AssertionError(f"未処理のコマンドです: {args.command}")
 
 
+def _run_tree_migration(
+    args: argparse.Namespace,
+    *,
+    include_projects: bool,
+) -> dict[str, Any]:
+    """SourceとDestinationへ接続してTree移行を一括実行する。"""
+    source = source_client()
+    source_group = source.get_json(f"/groups/{args.source_group_id}")
+    destination_name = args.destination_name or str(
+        source_group.get("name", args.destination_path)
+    )
+    manifest_path = (
+        args.manifest
+        or DEFAULT_MANIFEST_DIR / f"tree-{args.source_group_id}.json"
+    )
+    return TreeMigrator(
+        source,
+        destination_client(),
+        group_export_dir=DEFAULT_EXPORT_DIR,
+        project_export_dir=DEFAULT_PROJECT_EXPORT_DIR,
+        manifest_path=manifest_path,
+        poll_interval_seconds=args.poll_interval,
+        timeout_seconds=args.timeout,
+    ).migrate(
+        args.source_group_id,
+        destination_name=destination_name,
+        destination_path=args.destination_path,
+        destination_parent_id=args.destination_parent_id,
+        include_projects=include_projects,
+        reuse_existing_group=args.reuse_existing_group,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLIエントリーポイント。"""
     parser = build_parser()
@@ -450,7 +562,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     if (
-        args.command == "preflight"
+        args.command
+        in {"preflight", "verify-group", "verify-tree", "verify-project-placement"}
         and isinstance(result, dict)
         and result.get("status") == "failed"
     ):

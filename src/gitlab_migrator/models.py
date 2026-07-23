@@ -109,3 +109,20 @@ class VerificationResult:
     def to_dict(self) -> dict[str, Any]:
         """JSON保存可能な辞書へ変換する。"""
         return asdict(self)
+
+
+@dataclass(slots=True)
+class ProjectTreeVerificationResult:
+    """Group配下の全Project比較結果。"""
+
+    status: str
+    source_project_count: int
+    destination_project_count: int
+    matched_project_count: int
+    missing_projects: list[str] = field(default_factory=list)
+    extra_projects: list[str] = field(default_factory=list)
+    changed_projects: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON保存可能な辞書へ変換する。"""
+        return asdict(self)

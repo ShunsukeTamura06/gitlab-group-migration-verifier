@@ -18,9 +18,11 @@
 
 - [x] Group配下へ1 ProjectをImport
 - [x] Namespace配置確認
-- [ ] 全Project移行
+- [x] 全Project一括移行（8 Group・7 Project実機検証）
 - [ ] Group / Project関連性比較
 - [x] `make migrate-tree`の有効化
+- [x] 全Project SnapshotのMissing / Extra / 属性比較
+- [x] 逐次環境向け`export-tree` / `import-tree`
 
 ## 既知の環境制約
 
@@ -34,8 +36,8 @@
 - [ ] Board / Badge / Wiki / Epic / Iteration
 - [ ] Variable / Webhook / Deploy Tokenなど対象外項目
 - [ ] 途中停止後の`--resume`
-- [ ] 完全なテスト用Groupツリー
-- [ ] 実機での全Project統合移行
+- [x] 完全なテスト用Groupツリー
+- [x] 実機での全Project統合移行
 
 ## 社内利用向けHardening
 

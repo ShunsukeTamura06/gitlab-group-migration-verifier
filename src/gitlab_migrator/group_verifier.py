@@ -110,6 +110,21 @@ class GroupVerifier:
             milestone_differences=milestone_differences,
         )
 
+    @classmethod
+    def snapshot_nodes(cls, snapshot: dict[str, Any]) -> list[GroupNode]:
+        """Group Snapshotから相対パス順のGroupNodeを復元する。"""
+        groups = cls._snapshot_groups(snapshot)
+        return [
+            item["node"]
+            for _, item in sorted(
+                groups.items(),
+                key=lambda pair: (
+                    pair[1]["node"].depth,
+                    pair[1]["node"].relative_path,
+                ),
+            )
+        ]
+
     @staticmethod
     def _snapshot_groups(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Snapshotを相対パスで索引し、構造を検証する。"""
