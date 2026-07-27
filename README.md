@@ -1,52 +1,53 @@
-# GitLab Group Migration Verifier
+# GitLab Group Migrator
 
-GitLab 15.3.3 EEから19.1.1 EEへ、GroupとProjectをファイルExport / Importで移行し、Group階層・Label・Milestone・Project Namespaceを検証するCLIです。Direct Transferを利用できない社内環境での移行検証を主用途とします。
+GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環境から新環境へ移行するCLIです。Direct Transferを利用できない社内・閉域環境を想定し、事前診断、Archiveの安全性検査、移行後照合、Manifest、Markdownレポートまでを一つの手順で実行します。
 
 > [!WARNING]
-> このVersion間の直接移行はGitLabの公式互換保証範囲外です。最小実機検証には成功していますが、全量移行の成功や全機能の保持を保証しません。必ず非本番データでPilotを行い、バックアップと変更承認を用意してください。
+> GitLabの異なるVersion間でのファイルImportには互換性上の制約があります。本番前に対象データと同等のPilotを実施し、Source / Destinationのバックアップ、変更凍結、切り戻し手順を用意してください。
 
-## 実装済み
+## 主な機能
 
-- GitLab 15.3.3 / 19.1.1のローカルCompose検証環境
-- Group Export、404 / 429を考慮したDownload待機、tar.gz安全性検査
-- 既存Group / Projectを上書きしないImport
-- Group階層、Label、Milestoneの比較
-- 相対NamespaceマッピングによるProject配置
-- Project Export / Importの非同期完了待機
-- Group配下の全Project一括Export / Importと最終件数突合
-- Source / Destinationを逐次起動できる`export-tree` / `import-tree`
-- 秘密情報をマスクしたManifestとMarkdownレポート
+- Group / Subgroup階層、Label、MilestoneのExport / Import
+- Group配下の全Project一括Export / Import
+- 相対Namespaceに基づくProject配置
+- 非同期Export / Importの待機、API timeout、指数バックオフ
+- Archiveの形式、展開Path、サイズ、SHA-256検査
+- 既存Group / Projectを上書きしない安全設計
 - 接続、認証、Version、Project Import設定の非破壊Preflight
-- 接続先別の社内CA Bundle、API timeout、指数バックオフ
-- Export、Manifest、レポートの`0600`保存
-
-2026-07-23に、Group、Subgroup、Label、Milestone、1 Projectの最小実機検証へ成功しました。さらに、8 Group・7 Projectの全Project一括移行で、Missing / Extraなし、全Namespace一致を確認しました。根拠は[最小検証結果](docs/minimal-validation-2026-07-23.md)と[全Project検証結果](docs/full-project-validation-2026-07-23.md)に記録しています。
-
-## 未検証・非対応
-
-Membersの全Access Level、Board、Badge、Group Wiki、Epic、Iteration、Variable、Webhook、Deploy Token、Runner、Push Rule、招待、同名Project競合、途中停止後の`--resume`は未検証です。認証情報、Runner登録、Webhook等はExportアーカイブで復元される前提にせず、別途棚卸しと再設定を行ってください。
-
-本番判断では、[社内移行Runbook](docs/internal-runbook.md)と[実装ステータス](docs/implementation-status.md)を確認してください。
+- Group階層とProjectのPath、Name、Default Branch、Repository状態の事後照合
+- 秘密情報をマスクしたManifestとMarkdownレポート
+- SourceとDestinationへ同時接続できない環境向けの二段階移行
 
 ## 必要環境
 
 - Python 3.11以上
-- 実環境のGitLabへHTTPS接続できる端末
-- ローカル再現時のみDocker Desktop / Docker Compose v2、空きディスク約10GB
+- 移行元と移行先のGitLabへHTTPS接続できる端末
+- 移行元: 対象GroupをExportできるOwner相当のPersonal Access Token
+- 移行先: Group / Project ImportとApplication Settings確認に必要なAdmin相当のPersonal Access Token
 
-ランタイム依存パッケージはありません。
+ランタイム依存パッケージはありません。ユーザー名とパスワードによる認証、TLS検証の無効化、自動削除、自動上書きには対応していません。
 
 ## インストール
+
+[Releases](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases)からSource archiveを取得して展開し、次を実行します。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
+python -m pip install .
+gitlab-migrator --help
 ```
 
-## 実環境の接続設定
+Gitから直接取得する場合:
 
-Tokenはファイルへ保存せず、Secrets Manager等から環境変数へ注入してください。
+```bash
+python -m pip install \
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@main'
+```
+
+## 接続設定
+
+Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
@@ -57,9 +58,11 @@ export DESTINATION_GITLAB_TOKEN='移行先のapi scope token'
 # 社内CAを使う場合
 export SOURCE_GITLAB_CA_BUNDLE='/secure/path/corporate-ca.pem'
 export DESTINATION_GITLAB_CA_BUNDLE='/secure/path/corporate-ca.pem'
-```
 
-TLS検証を無効にするオプションはありません。移行元は対象GroupのOwner相当、移行先はGroup / Project ImportとApplication Settings確認に必要なAdmin権限を推奨します。
+# 大規模移行向けの例
+export GITLAB_API_TIMEOUT=60
+export GITLAB_API_MAX_RETRIES=4
+```
 
 まず、変更を加えない事前診断を実行します。
 
@@ -67,77 +70,66 @@ TLS検証を無効にするオプションはありません。移行元は対�
 gitlab-migrator preflight
 ```
 
-必須チェックに失敗すると終了コード`2`、警告のみなら`0`です。
+必須チェックに失敗すると終了コード`2`、警告のみなら`0`です。`gitlab_project` Import Sourceが無効な場合、GitLab管理者の承認後に`gitlab-migrator enable-project-import`で有効化できます。
 
-## 移行
+## 一括移行
 
-Groupのみ:
-
-```bash
-gitlab-migrator migrate-group \
-  --source-group-id 10 \
-  --destination-path migration-destination \
-  --exclude-projects
-```
-
-Groupを先に移行し、全Projectを対応Namespaceへ移行:
+Group階層と配下の全Projectを移行します。
 
 ```bash
-gitlab-migrator migrate-tree \
-  --source-group-id 10 \
-  --destination-path migration-destination \
-  --include-projects
+gitlab-migrator --poll-interval 20 --timeout 7200 migrate-tree \
+  --source-group-id 123 \
+  --destination-name engineering \
+  --destination-path engineering \
+  --manifest work/manifests/engineering-tree.json
 ```
 
-SourceとDestinationへ同時接続できない場合は、同じ処理を二段階で実行できます。
+完了後、Manifestから監査・受入確認用レポートを生成します。
 
-Source接続中:
+```bash
+gitlab-migrator report \
+  --manifest work/manifests/engineering-tree.json \
+  --output work/reports/engineering.md
+```
+
+同じPathがDestinationに存在すると、デフォルトで停止します。`--reuse-existing-group`は対象Groupを意図的に再利用する場合だけ指定してください。
+
+## 二段階移行
+
+SourceとDestinationへ同時接続できない場合は、ExportとImportを分けて実行します。
+
+Sourceへ接続できる環境:
 
 ```bash
 gitlab-migrator --poll-interval 20 --timeout 7200 export-tree \
-  --source-group-id 10 \
-  --manifest work/manifests/tree-10.json
+  --source-group-id 123 \
+  --manifest work/manifests/tree-123.json
 ```
 
-Destination接続へ切替後:
+Manifestと`work/exports`を承認済みの暗号化経路でDestination側へ搬送した後:
 
 ```bash
 gitlab-migrator --poll-interval 20 --timeout 7200 import-tree \
-  --manifest work/manifests/tree-10.json \
-  --destination-path migration-destination
+  --manifest work/manifests/tree-123.json \
+  --destination-name engineering \
+  --destination-path engineering
 ```
 
-`import-tree`はImport前に全Archiveの形式・サイズ・SHA-256を再確認し、Import後にGroup階層と全Project一覧を取り直して相対Path、Name、Path、Default Branch、Repositoryの空・非空を突合します。
+`import-tree`はImport前に全Archiveの形式、サイズ、SHA-256を再確認し、Import後にGroup階層と全Projectを取り直して照合します。
 
-同じPathが移行先に存在すると、デフォルトで停止します。`--reuse-existing-group`は、そのGroupを意図的に使う場合だけ指定してください。自動削除や自動上書きは行いません。
+## 対応範囲と注意事項
 
-## ローカル再現
+Membersの全Access Level、Board、Badge、Group Wiki、Epic、Iteration、Variable、Webhook、Deploy Token、Runner、Push Rule、招待、途中停止後の`--resume`は自動照合の対象外です。認証情報、Runner登録、Webhook等はExportで復元される前提にせず、事前棚卸しと再設定を行ってください。
 
-```bash
-cp .env.example .env
-# .env内の2つのローカル用パスワードを変更
-make up
-make wait
-```
+実施前に[移行Runbook](docs/migration-runbook.md)と[対応範囲](docs/compatibility.md)を確認してください。Exportアーカイブ、Manifest、レポートの取扱いは[セキュリティ方針](SECURITY.md)に従ってください。
 
-- 移行元: http://localhost:8081
-- 移行先: http://localhost:8082
-- ユーザー名: `root`
+## ブランチ構成
 
-GitLab 2台へ8GB以上のDockerメモリを推奨します。約4GBでは同時起動できないため、Sourceで`export-group` / `export-project` / `snapshot-group`を実行して停止し、Destinationへ切り替えてImport / Verifyする逐次方式を使います。
+- `main`: 利用者向けの本番移行CLI。GitLab検証コンテナやテストデータ生成機能は含みません。
+- `develop`: 開発者向け。ローカルGitLab検証環境、検証データ生成、Smoke Test、実測記録を保持します。
 
-ローカルCompose環境に限り、Tokenの代わりに`SOURCE_GITLAB_ROOT_PASSWORD`と`DESTINATION_GITLAB_ROOT_PASSWORD`から一時OAuth Tokenを取得できます。実環境では使用しないでください。
+検証環境を使う開発者は`develop`をCheckoutしてください。運用ルールは[開発ブランチ運用](DEVELOPMENT.md)に記載しています。
 
-## 開発と検証
+## ライセンス
 
-```bash
-make all
-```
-
-`make all`はCompileと単体テストだけを実行します。実GitLabを変更するSmoke Testは`make smoke-groups`として分離しています。
-
-```bash
-make down
-```
-
-Named Volumeは`make down`では削除されません。検証データを消去するMake targetは、誤消去防止のため提供していません。
+[MIT License](LICENSE)

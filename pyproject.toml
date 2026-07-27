@@ -1,16 +1,30 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gitlab-group-migrator"
-version = "0.1.0"
-description = "GitLabグループのExport/Import移行検証ツール"
+version = "1.0.0"
+description = "GitLabグループとProjectを安全にExport/Importする移行ツール"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
-authors = [{name = "GitLab Migration Verification Team"}]
+license = "MIT"
+authors = [{name = "GitLab Migration Team"}]
+keywords = ["gitlab", "migration", "export", "import"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier"
+Repository = "https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier"
+Issues = "https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/issues"
 
 [project.scripts]
 gitlab-migrator = "gitlab_migrator.cli:main"
