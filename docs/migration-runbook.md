@@ -1,4 +1,4 @@
-# 社内GitLab移行Runbook
+# GitLab移行Runbook
 
 このRunbookは、Direct Transferを利用できない環境で、GitLab Group ExportとProject Exportを使った移行Pilotを安全に実施するための手順です。対象Versionは実機確認済みの15.3.3 EEから19.1.1 EEを基準にしています。
 
@@ -36,15 +36,14 @@ Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Export�
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
-make all
+python -m pip install .
 ```
 
 Exportアーカイブは機密データとして扱います。ツールは生成ファイルを`0600`で保存しますが、ディスク、バックアップ、転送経路にも組織の暗号化基準を適用してください。
 
 ## 4. 認証と社内CA
 
-実環境ではPassword Grantを使いません。Sourceは対象GroupをExportできるOwner相当のToken、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin Tokenを、Secrets Managerから短時間だけ環境変数へ注入します。
+Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin相当のPersonal Access Tokenを、Secrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'

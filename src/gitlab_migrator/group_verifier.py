@@ -39,7 +39,7 @@ class GroupVerifier:
 
     @staticmethod
     def capture(client: GitLabClient, group_id: int) -> dict[str, Any]:
-        """逐次起動検証用にGroup階層と比較対象データを取得する。"""
+        """逐次移行と事後照合用にGroup階層と比較対象データを取得する。"""
         nodes = GroupHierarchy(client).fetch(group_id)
         groups = []
         for node in nodes:

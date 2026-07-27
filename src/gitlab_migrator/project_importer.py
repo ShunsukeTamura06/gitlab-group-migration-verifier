@@ -1,4 +1,4 @@
-"""最小検証用Project Import。"""
+"""GitLab Project Import。"""
 
 from __future__ import annotations
 

@@ -12,7 +12,7 @@ Exportアーカイブ、Manifest、レポートには社内の機密情報や個
 
 ## 認証とTLS
 
-実環境ではPassword Grantを使用せず、用途を限定したTokenを使ってください。社内CAは`SOURCE_GITLAB_CA_BUNDLE`と`DESTINATION_GITLAB_CA_BUNDLE`で指定できます。TLS検証を無効化する機能は提供していません。
+認証には用途を限定したPersonal Access Tokenを使ってください。ユーザー名とパスワードによる認証は提供していません。社内CAは`SOURCE_GITLAB_CA_BUNDLE`と`DESTINATION_GITLAB_CA_BUNDLE`で指定できます。TLS検証を無効化する機能は提供していません。
 
 ## 脆弱性の報告
 
