@@ -16,4 +16,4 @@ Exportアーカイブ、Manifest、レポートには社内の機密情報や個
 
 ## 脆弱性の報告
 
-公開IssueへToken、URL、Exportデータ、社内構成を投稿しないでください。このリポジトリの管理者が定める非公開のセキュリティ窓口へ、再現条件と影響範囲を送付してください。
+公開IssueへToken、URL、Exportデータ、社内構成を投稿しないでください。GitHubの[Private Vulnerability Reporting](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/security/advisories/new)へ、機密情報を除いた再現条件と影響範囲を送付してください。社内情報が必要な場合は、所属組織の移行責任者またはGitLab管理者へ連絡してください。
