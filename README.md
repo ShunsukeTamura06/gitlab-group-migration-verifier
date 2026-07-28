@@ -3,7 +3,9 @@
 GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環境から新環境へ移行するCLIです。Direct Transferを利用できない社内・閉域環境を想定し、事前診断、Archiveの安全性検査、移行後照合、Manifest、Markdownレポートまでを一つの手順で実行します。
 
 > [!WARNING]
-> GitLabの異なるVersion間でのファイルImportには互換性上の制約があります。本番前に対象データと同等のPilotを実施し、Source / Destinationのバックアップ、変更凍結、切り戻し手順を用意してください。
+> GitLab公式のファイルImport互換範囲は、移行先から2 Minor Version以内です。開発時に確認した15.3.3 EEから19.1.1 EEへの移行は公式互換範囲外です。本ツールはこの組み合わせで実機確認していますが、移行成功や全データ保持を保証しません。必ず対象データと同等のPilot、バックアップ、変更凍結、切り戻し、移行責任者の承認を用意してください。
+
+本ツールのRelease StatusはBetaです。各組織の移行手順全体を代替するものではありません。
 
 ## 主な機能
 
@@ -15,6 +17,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 - 既存Group / Projectを上書きしない安全設計
 - 接続、認証、Version、Project Import設定の非破壊Preflight
 - Group階層とProjectのPath、Name、Default Branch、Repository状態の事後照合
+- Project Import Status APIによる`failed_relations`検出
 - 秘密情報をマスクしたManifestとMarkdownレポート
 - SourceとDestinationへ同時接続できない環境向けの二段階移行
 
@@ -29,20 +32,27 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ## インストール
 
-[Releases](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases)からSource archiveを取得して展開し、次を実行します。
+利用者は変更される`main`ではなく、[v1.1.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.1.0)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install .
-gitlab-migrator --help
+
+curl -LO \
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/gitlab_group_migrator-1.1.0-py3-none-any.whl
+curl -LO \
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/SHA256SUMS
+
+sha256sum --check --ignore-missing SHA256SUMS
+python -m pip install ./gitlab_group_migrator-1.1.0-py3-none-any.whl
+gitlab-migrator --version
 ```
 
-Gitから直接取得する場合:
+macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-any.whl' SHA256SUMS | shasum -a 256 -c -`を使用します。Gitから直接取得する場合もTagを固定します。
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@main'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.1.0'
 ```
 
 ## 接続設定
@@ -67,10 +77,13 @@ export GITLAB_API_MAX_RETRIES=4
 まず、変更を加えない事前診断を実行します。
 
 ```bash
-gitlab-migrator preflight
+gitlab-migrator preflight \
+  --source-group-id 123 \
+  --destination-path engineering \
+  --required-free-gib 50
 ```
 
-必須チェックに失敗すると終了コード`2`、警告のみなら`0`です。`gitlab_project` Import Sourceが無効な場合、GitLab管理者の承認後に`gitlab-migrator enable-project-import`で有効化できます。
+必須チェックに失敗すると終了コード`2`、警告のみなら`0`です。警告は成功を意味しません。公式互換範囲外などの警告は、移行責任者がPilot結果とともに継続可否を記録してください。`gitlab_project` Import Sourceが無効な場合、GitLab管理者の承認後に`gitlab-migrator enable-project-import`で有効化できます。
 
 ## 一括移行
 
@@ -121,7 +134,15 @@ gitlab-migrator --poll-interval 20 --timeout 7200 import-tree \
 
 Membersの全Access Level、Board、Badge、Group Wiki、Epic、Iteration、Variable、Webhook、Deploy Token、Runner、Push Rule、招待、途中停止後の`--resume`は自動照合の対象外です。認証情報、Runner登録、Webhook等はExportで復元される前提にせず、事前棚卸しと再設定を行ってください。
 
-実施前に[移行Runbook](docs/migration-runbook.md)と[対応範囲](docs/compatibility.md)を確認してください。Exportアーカイブ、Manifest、レポートの取扱いは[セキュリティ方針](SECURITY.md)に従ってください。
+実施前に次の順で確認してください。
+
+1. [利用者Quickstart](docs/user-quickstart.md)
+2. [移行申請テンプレート](docs/migration-request-template.md)
+3. [ユーザーマッピング](docs/user-mapping.md)
+4. [移行Runbook](docs/migration-runbook.md)
+5. [受入確認チェックリスト](docs/acceptance-checklist.md)
+
+詳細な対応範囲は[対応範囲](docs/compatibility.md)、失敗時は[トラブルシューティング](docs/troubleshooting.md)を参照してください。Exportアーカイブ、Manifest、レポートの取扱いは[セキュリティ方針](SECURITY.md)、問い合わせ方法は[SUPPORT.md](SUPPORT.md)に従ってください。
 
 ## ブランチ構成
 

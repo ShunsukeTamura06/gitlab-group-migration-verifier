@@ -1,0 +1,8 @@
+include LICENSE
+include README.md
+include SECURITY.md
+include SUPPORT.md
+recursive-include docs *.md
+prune tests
+global-exclude __pycache__
+global-exclude *.py[cod]

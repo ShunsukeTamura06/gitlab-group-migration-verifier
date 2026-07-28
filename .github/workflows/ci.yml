@@ -49,22 +49,61 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check build
           python -m build
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
       - name: Inspect wheel contents
         run: |
           python - <<'PY'
           from pathlib import Path
+          from tarfile import open as open_tar
           from zipfile import ZipFile
 
           wheel = next(Path("dist").glob("*.whl"))
+          sdist = next(Path("dist").glob("*.tar.gz"))
           with ZipFile(wheel) as archive:
-              names = set(archive.namelist())
-          forbidden = {
+              wheel_names = set(archive.namelist())
+          forbidden_wheel = {
               "gitlab_migrator/auth.py",
               "gitlab_migrator/bootstrap.py",
           }
-          found = sorted(forbidden & names)
-          if found:
-              raise SystemExit(f"検証専用Moduleがwheelへ混入しています: {found}")
+          found_wheel = sorted(forbidden_wheel & wheel_names)
+          if found_wheel:
+              raise SystemExit(
+                  f"検証専用Moduleがwheelへ混入しています: {found_wheel}"
+              )
+
+          with open_tar(sdist, "r:gz") as archive:
+              sdist_names = set(archive.getnames())
+          forbidden_sdist = (
+              "/tests/",
+              "/compose.yaml",
+              "/src/gitlab_migrator/auth.py",
+              "/src/gitlab_migrator/bootstrap.py",
+          )
+          found_sdist = [
+              suffix
+              for suffix in forbidden_sdist
+              if any(suffix in name for name in sdist_names)
+          ]
+          if found_sdist:
+              raise SystemExit(
+                  f"検証・開発専用Fileがsdistへ混入しています: {found_sdist}"
+              )
+          required_sdist = (
+              "/SUPPORT.md",
+              "/docs/user-quickstart.md",
+              "/docs/migration-runbook.md",
+          )
+          missing_sdist = [
+              suffix
+              for suffix in required_sdist
+              if not any(name.endswith(suffix) for name in sdist_names)
+          ]
+          if missing_sdist:
+              raise SystemExit(
+                  f"利用者向けDocumentがsdistにありません: {missing_sdist}"
+              )
           PY
       - uses: actions/upload-artifact@v4
         with:

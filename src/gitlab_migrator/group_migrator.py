@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .client import GitLabClient
 from .group_exporter import GroupExporter
 from .group_importer import GroupImporter
@@ -50,6 +51,10 @@ class GroupMigrator:
         started_at = datetime.now(timezone.utc).isoformat()
         source_group = self.source.get_json(f"/groups/{source_group_id}")
         manifest: dict[str, Any] = {
+            "tool": {
+                "name": "gitlab-group-migrator",
+                "version": __version__,
+            },
             "state": "group_export_started",
             "source": source_group,
             "destination": None,

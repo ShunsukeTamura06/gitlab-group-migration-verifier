@@ -1,0 +1,48 @@
+name: Migration tool bug
+description: 機密情報を含まないGitLab Group Migratorの不具合報告
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Token、社内URL、Export Archive、Manifest原本、Server Log、個人情報を投稿しないでください。
+        機密情報が必要な場合は、所属組織の移行責任者またはGitLab管理者へ連絡してください。
+  - type: input
+    id: migrator_version
+    attributes:
+      label: Migrator Version
+      description: "`gitlab-migrator --version`の結果"
+      placeholder: gitlab-migrator 1.1.0
+    validations:
+      required: true
+  - type: input
+    id: gitlab_versions
+    attributes:
+      label: GitLab Versions
+      description: 機密でない範囲のSource / Destination VersionとEdition
+      placeholder: Source 15.3.3 EE / Destination 19.1.1 EE
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 発生した事象
+      description: 機密情報を除外して、期待結果と実際の結果を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      description: Token、URL、Group名等はダミー値へ置き換えてください。
+    validations:
+      required: true
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: 情報管理
+      options:
+        - label: Token、社内URL、Archive、個人情報を含んでいないことを確認しました
+          required: true
