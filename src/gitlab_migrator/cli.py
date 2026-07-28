@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from . import __version__
 from .client import GitLabClient
@@ -17,13 +18,12 @@ from .group_importer import GroupImporter
 from .group_migrator import GroupMigrator
 from .group_verifier import GroupVerifier
 from .manifest import ManifestStore, redact_secrets
+from .preflight import PreflightChecker
 from .project_exporter import ProjectExporter
 from .project_importer import ProjectImporter
 from .project_verifier import ProjectTreeVerifier
-from .preflight import PreflightChecker
 from .report import write_markdown_report
 from .tree_migrator import TreeBundleExporter, TreeBundleImporter, TreeMigrator
-
 
 DEFAULT_EXPORT_DIR = Path("work/exports/groups")
 DEFAULT_PROJECT_EXPORT_DIR = Path("work/exports/projects")
@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("list-groups", help="移行元のGroup一覧を表示")
+    subparsers.add_parser(
+        "list-destination-groups",
+        help="移行先で選択可能な親Group一覧を表示",
+    )
     preflight = subparsers.add_parser(
         "preflight",
         help="接続・認証・Import設定を非破壊で事前診断",
@@ -193,7 +197,15 @@ def _client_from_env(prefix: str) -> GitLabClient:
 def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     """解析済み引数に対応する処理を実行する。"""
     if args.command == "list-groups":
-        return source_client().list_all("/groups", params={"owned": "true", "order_by": "full_path"})
+        return source_client().list_all(
+            "/groups",
+            params={"owned": "true", "order_by": "full_path"},
+        )
+    if args.command == "list-destination-groups":
+        return destination_client().list_all(
+            "/groups",
+            params={"order_by": "full_path"},
+        )
     if args.command == "preflight":
         if args.required_free_gib < 0:
             raise MigratorError("--required-free-gibは0以上で指定してください")

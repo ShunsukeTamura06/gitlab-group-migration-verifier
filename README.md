@@ -32,19 +32,32 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ## インストール
 
-利用者は変更される`main`ではなく、[v1.1.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.1.0)のwheelをVersion固定で使用してください。
+### Windows（推奨）
+
+1. [v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)から`gitlab-group-migrator-windows-v1.2.0.zip`をDownloadします。
+2. ZIPを右クリックして「すべて展開」を選びます。ZIP内から直接起動しないでください。
+3. 展開先の`Start-GitLabMigration.cmd`をダブルクリックします。
+4. 画面の質問に答え、最初は「Pilot移行」を選びます。
+
+初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。Access Tokenは画面に表示せず、ファイルにも保存しません。利用者によるPowerShell、環境変数、Group ID、`pip`、CLI Commandの操作は不要です。
+
+Pythonがない場合だけ、[Python公式Windows版](https://www.python.org/downloads/windows/)からPython 3.11以上をInstallし、Python Launcherを有効にしてください。
+
+### macOS / Linux・上級者向け
+
+利用者は変更される`main`ではなく、[v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/gitlab_group_migrator-1.1.0-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.0/gitlab_group_migrator-1.2.0-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.0/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.1.0-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.0-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -52,12 +65,12 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.1.0'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.0'
 ```
 
 ## 接続設定
 
-Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
+Windows簡単スタートでは、画面の非表示入力欄へ移行元・移行先のTokenを貼り付けます。以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'

@@ -37,11 +37,13 @@ Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Export�
 
 暗号化された管理端末または作業用VMを使用し、作業ディレクトリへのアクセスを担当者へ限定します。
 
+Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.2.0.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
+
 ```bash
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./gitlab_group_migrator-1.1.0-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.0-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -49,7 +51,7 @@ Exportアーカイブは機密データとして扱います。ツールは生�
 
 ## 4. 認証と社内CA
 
-Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin相当のPersonal Access Tokenを、Secrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
+Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin相当のPersonal Access Tokenを使います。Windowsウィザードでは非表示入力欄へ貼り付け、ファイルへ保存しません。手動運用ではSecrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
