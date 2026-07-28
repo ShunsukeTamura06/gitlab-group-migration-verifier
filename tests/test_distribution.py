@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
 import unittest
 from unittest.mock import patch
 
 from gitlab_migrator.cli import _client_from_env, build_parser
 from gitlab_migrator.errors import ConfigurationError
+from gitlab_migrator import __version__
 
 
 class DistributionBoundaryTest(unittest.TestCase):
@@ -45,6 +48,16 @@ class DistributionBoundaryTest(unittest.TestCase):
                 "SOURCE_GITLAB_TOKEN",
             ):
                 _client_from_env("SOURCE")
+
+    def test_cli_exposes_package_version(self) -> None:
+        """問い合わせ時に利用者が実行Versionを確認できる。"""
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(SystemExit, "0"):
+                build_parser().parse_args(["--version"])
+
+        self.assertIn(__version__, output.getvalue())
 
 
 if __name__ == "__main__":

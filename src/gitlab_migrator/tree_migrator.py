@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from . import __version__
 from .client import GitLabClient
 from .errors import ArchiveValidationError, TreeVerificationError
 from .group_exporter import GroupExporter
@@ -61,6 +62,10 @@ class TreeBundleExporter:
         """Groupと配下の全ProjectをExportし、移送可能なManifestを作る。"""
         started_at = _utcnow()
         manifest: dict[str, Any] = {
+            "tool": {
+                "name": "gitlab-group-migrator",
+                "version": __version__,
+            },
             "state": "not_started",
             "status": "running",
             "source": {"group_id": source_group_id},
@@ -399,6 +404,7 @@ class TreeBundleImporter:
         )
         record.update(
             {
+                "import": asdict(imported),
                 "destination_project_id": imported.project_id,
                 "destination_path": imported.full_path,
                 "expected_destination_path": expected_path,

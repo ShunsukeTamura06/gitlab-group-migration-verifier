@@ -38,9 +38,10 @@ class ProjectExportClient:
 class ProjectImportClient:
     """Project Import向けFakeクライアント。"""
 
-    def __init__(self) -> None:
-        """Project取得回数を初期化する。"""
-        self.project_reads = 0
+    def __init__(self, *, failed_relations: list[dict[str, object]] | None = None) -> None:
+        """Import状態とRelation失敗を初期化する。"""
+        self.import_statuses = ["scheduled", "finished"]
+        self.failed_relations = failed_relations or []
 
     @staticmethod
     def encode_id(value: object) -> str:
@@ -53,11 +54,20 @@ class ProjectImportClient:
             return {"id": 35, "full_path": "destination/subgroup"}
         if "destination/subgroup/api-service" in path:
             raise GitLabApiError("not found", status=404)
-        self.project_reads += 1
+        if path == "/projects/1/import":
+            status = self.import_statuses.pop(0)
+            return {
+                "id": 1,
+                "import_status": status,
+                "correlation_id": "migration-123",
+                "import_error": None,
+                "failed_relations": (
+                    self.failed_relations if status == "finished" else []
+                ),
+            }
         return {
             "id": 1,
             "path_with_namespace": "destination/subgroup/api-service",
-            "import_status": "scheduled" if self.project_reads == 1 else "finished",
         }
 
     def post_multipart(self, *_args: object, **_kwargs: object) -> ApiResponse:
@@ -103,6 +113,39 @@ class ProjectMigrationTest(unittest.TestCase):
             )
         self.assertEqual(3, clock.value)
         self.assertEqual("destination/subgroup/api-service", result.full_path)
+        self.assertEqual([], result.failed_relations)
+        self.assertEqual("migration-123", result.correlation_id)
+
+    def test_rejects_finished_import_with_failed_relations(self) -> None:
+        """StatusがfinishedでもRelation失敗があれば成功扱いしない。"""
+        failed_relations = [
+            {
+                "relation_name": "merge_requests",
+                "exception_class": "RuntimeError",
+                "exception_message": "query timeout",
+            }
+        ]
+        client = ProjectImportClient(failed_relations=failed_relations)
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "project.tar.gz"
+            archive.write_bytes(tar_gz_bytes("project.json"))
+            with self.assertRaisesRegex(
+                GitLabApiError,
+                "merge_requests",
+            ):
+                ProjectImporter(
+                    client,  # type: ignore[arg-type]
+                    poll_interval_seconds=3,
+                    timeout_seconds=10,
+                    sleep=clock.sleep,
+                    monotonic=clock.monotonic,
+                ).import_project(
+                    archive,
+                    name="api-service",
+                    path="api-service",
+                    namespace_id=35,
+                )
 
 
 if __name__ == "__main__":

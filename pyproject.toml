@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gitlab-group-migrator"
-version = "1.0.0"
+dynamic = ["version"]
 description = "GitLabグループとProjectを安全にExport/Importする移行ツール"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = "MIT"
 authors = [{name = "GitLab Migration Team"}]
 keywords = ["gitlab", "migration", "export", "import"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -31,6 +31,9 @@ gitlab-migrator = "gitlab_migrator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "gitlab_migrator.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

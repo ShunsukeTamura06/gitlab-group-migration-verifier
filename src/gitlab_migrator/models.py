@@ -60,6 +60,8 @@ class ProjectImportResult:
     full_path: str
     response: dict[str, Any]
     resolved_by: str
+    failed_relations: list[dict[str, Any]] = field(default_factory=list)
+    correlation_id: str | None = None
     status: str = "finished"
 
 

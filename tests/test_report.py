@@ -15,6 +15,7 @@ class ReportTest(unittest.TestCase):
     def test_reports_complete_project_placement(self) -> None:
         """全Projectが正しいNamespaceなら完全一致と表示する。"""
         manifest = {
+            "tool": {"version": "1.1.0"},
             "source": {"project_count": 1},
             "verification": {
                 "status": "success",
@@ -28,6 +29,7 @@ class ReportTest(unittest.TestCase):
             write_markdown_report(manifest, output)
             content = output.read_text(encoding="utf-8")
         self.assertIn("プロジェクトのNamespace配置: 完全一致", content)
+        self.assertIn("Tool Version: 1.1.0", content)
 
 
 if __name__ == "__main__":

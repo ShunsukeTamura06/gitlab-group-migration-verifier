@@ -21,6 +21,9 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check build
           python -m build
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
       - name: Test installed wheel
         run: |
           python -m pip install --force-reinstall dist/*.whl

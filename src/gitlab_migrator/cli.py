@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from . import __version__
 from .client import GitLabClient
 from .config import GitLabConfig
 from .errors import GitLabApiError, MigratorError
@@ -33,12 +34,29 @@ DEFAULT_REPORT_DIR = Path("work/reports")
 def build_parser() -> argparse.ArgumentParser:
     """コマンドライン引数Parserを生成する。"""
     parser = argparse.ArgumentParser(description="GitLabグループ移行ツール")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     parser.add_argument("--poll-interval", type=float, default=5.0, help="ポーリング間隔（秒）")
     parser.add_argument("--timeout", type=float, default=600.0, help="処理タイムアウト（秒）")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("list-groups", help="移行元のGroup一覧を表示")
-    subparsers.add_parser("preflight", help="接続・認証・Import設定を非破壊で事前診断")
+    preflight = subparsers.add_parser(
+        "preflight",
+        help="接続・認証・Import設定を非破壊で事前診断",
+    )
+    preflight.add_argument(
+        "--required-free-gib",
+        type=float,
+        default=0,
+        help="作業端末に必要な空き容量（GiB、0は容量判定なし）",
+    )
+    preflight.add_argument("--source-group-id", type=int)
+    preflight.add_argument("--destination-path")
+    preflight.add_argument("--destination-parent-id", type=int)
     subparsers.add_parser("import-settings", help="移行先のImport関連設定を表示")
     subparsers.add_parser(
         "enable-project-import", help="移行先でgitlab_project Import Sourceを有効化"
@@ -177,13 +195,30 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     if args.command == "list-groups":
         return source_client().list_all("/groups", params={"owned": "true", "order_by": "full_path"})
     if args.command == "preflight":
-        return PreflightChecker(source_client(), destination_client()).check()
+        if args.required_free_gib < 0:
+            raise MigratorError("--required-free-gibは0以上で指定してください")
+        return PreflightChecker(
+            source_client(),
+            destination_client(),
+            required_free_bytes=int(args.required_free_gib * 1024**3),
+        ).check(
+            source_group_id=args.source_group_id,
+            destination_path=args.destination_path,
+            destination_parent_id=args.destination_parent_id,
+        )
     if args.command == "import-settings":
         settings = destination_client().get_json("/application/settings")
         return {
             key: value
             for key, value in settings.items()
-            if "import" in key or key in {"max_import_size", "max_export_size"}
+            if "import" in key
+            or key
+            in {
+                "max_import_size",
+                "max_export_size",
+                "max_decompressed_archive_size",
+                "decompress_archive_file_timeout",
+            }
         }
     if args.command == "enable-project-import":
         response = destination_client().put_form(
