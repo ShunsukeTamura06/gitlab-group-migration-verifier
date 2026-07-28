@@ -17,6 +17,11 @@ REQUIRED_FILES = (
     "migration_wizard.py",
     "README-WINDOWS.txt",
 )
+REQUIRED_DOCUMENTS = {
+    "MIGRATION-SCOPE.md": Path(__file__).resolve().parent.parent
+    / "docs"
+    / "compatibility.md",
+}
 
 
 def wheel_version(wheel: Path) -> str:
@@ -78,6 +83,9 @@ def create_bundle(wheel: Path, output_directory: Path) -> Path:
         source = source_directory / filename
         if not source.is_file():
             raise FileNotFoundError(source)
+    for source in REQUIRED_DOCUMENTS.values():
+        if not source.is_file():
+            raise FileNotFoundError(source)
     output_directory.mkdir(parents=True, exist_ok=True)
     bundle_name = f"gitlab-group-migrator-windows-v{version}"
     output_path = output_directory.resolve() / f"{bundle_name}.zip"
@@ -86,6 +94,8 @@ def create_bundle(wheel: Path, output_directory: Path) -> Path:
         bundle_directory.mkdir()
         for filename in REQUIRED_FILES:
             shutil.copy2(source_directory / filename, bundle_directory / filename)
+        for destination_name, source in REQUIRED_DOCUMENTS.items():
+            shutil.copy2(source, bundle_directory / destination_name)
         shutil.copy2(wheel, bundle_directory / wheel.name)
         (bundle_directory / "SHA256SUMS").write_text(
             f"{sha256(wheel)}  {wheel.name}\n",

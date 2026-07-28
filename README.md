@@ -7,6 +7,9 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 本ツールのRelease StatusはBetaです。各組織の移行手順全体を代替するものではありません。
 
+> [!IMPORTANT]
+> 移行前に[移行対象・非対象](docs/compatibility.md)を確認してください。選択したGroupツリーは一括移行しますが、GitLab Instance全体、共有Project、ユーザーアカウント、Secret、Token、Runner、Registry等は対象外です。GitLab標準Exportへ委ねる項目には手動確認が必要です。
+
 ## 主な機能
 
 - Group / Subgroup階層、Label、MilestoneのExport / Import

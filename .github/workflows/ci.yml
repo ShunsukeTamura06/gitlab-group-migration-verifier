@@ -113,6 +113,7 @@ jobs:
               "/windows_bootstrap.py",
               "/migration_wizard.py",
               "/README-WINDOWS.txt",
+              "/MIGRATION-SCOPE.md",
               "/SHA256SUMS",
               ".whl",
           )

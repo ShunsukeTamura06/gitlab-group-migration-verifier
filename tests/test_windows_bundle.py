@@ -34,6 +34,7 @@ class WindowsBundleTest(unittest.TestCase):
                 checksum = archive.read(checksum_name).decode("utf-8")
             self.assertTrue(any(name.endswith("/Start-GitLabMigration.cmd") for name in names))
             self.assertTrue(any(name.endswith("/migration_wizard.py") for name in names))
+            self.assertTrue(any(name.endswith("/MIGRATION-SCOPE.md") for name in names))
             self.assertTrue(any(name.endswith(f"/{wheel.name}") for name in names))
             self.assertIn(windows_bootstrap.sha256(wheel), checksum)
             self.assertFalse(any("/tests/" in name for name in names))
