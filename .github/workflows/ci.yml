@@ -179,6 +179,17 @@ jobs:
           $bootstrap = (Get-ChildItem extracted -Recurse -Filter windows_bootstrap.py).FullName
           $wizard = (Get-ChildItem extracted -Recurse -Filter migration_wizard.py).FullName
           $configure = (Get-ChildItem extracted -Recurse -Filter configure_distribution.py).FullName
+          $startCommand = (Get-ChildItem extracted -Recurse -Filter Start-GitLabMigration.cmd).FullName
+          $configureCommand = (Get-ChildItem extracted -Recurse -Filter Configure-Distribution.cmd).FullName
           py -3 $bootstrap --verify-only
           py -3 $wizard --help
           py -3 $configure --help
+          $env:GITLAB_MIGRATOR_NO_PAUSE = "1"
+          cmd.exe /d /c "`"$startCommand`" --verify-only"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Start-GitLabMigration.cmd failed with exit code $LASTEXITCODE"
+          }
+          cmd.exe /d /c "`"$configureCommand`" --help"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Configure-Distribution.cmd failed with exit code $LASTEXITCODE"
+          }
