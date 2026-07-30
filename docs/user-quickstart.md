@@ -6,20 +6,20 @@
 
 ### 1. 受領物を確認する
 
-- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.4-*.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.3.0-*.zip`
 - 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
 - Source / Destinationの短期Personal Access Token
 - Export、Manifest、レポートの承認済み保存先
 
-Tokenに必要な権限は、移行元が`api` scopeと対象GroupのOwner相当、移行先が`api` scopeとGroup作成・Project Import権限です。既存の親Groupへ配置する場合は、そのGroupでSubgroupを作成できる権限も必要です。移行実行者にGitLabインスタンス管理者権限は不要です。Tokenをチャット、チケット、メールで受け渡さないでください。
+Tokenには`api` scopeが必要です。Group移行では移行元GroupのOwner相当と、移行先のGroup作成・Project Import権限が必要です。個人Project移行では、両Tokenがそれぞれ移行元・移行先の本人アカウントに対応している必要があります。移行実行者にGitLabインスタンス管理者権限は不要です。
 
 ### 2. 移行対象・非対象を確認する
 
 ZIPに同梱された`MIGRATION-SCOPE.md`を開き、次を移行責任者と確認します。
 
-- 選択したGroupツリーだけが1回の実行対象である
+- 選択したGroupツリー、またはToken利用者の個人Namespace直下にある全Projectが実行対象である
 - 自動移行・自動照合される項目
 - GitLab標準Exportへ委ね、手動確認する項目
 - 移行対象外として別途再設定する項目
@@ -40,13 +40,15 @@ ZIPに同梱された`MIGRATION-SCOPE.md`を開き、次を移行責任者と確
 次の順に入力します。
 
 1. 移行元・移行先Access Token
-2. 画面に表示された移行元Groupの番号
-3. 「Pilot移行」「本番移行」「事前診断だけ」のいずれか
-4. 移行先のGroup名とPath
+2. 「Groupと配下の全Project」または「アカウント直下の全Project」
+3. Group移行では、移行元Groupと実行Mode、移行先Group名・Path
+4. 個人Project移行では、「事前診断だけ」または「全Projectを移行」
 
 GitLab URL、社内CA、必要容量は配布担当者が設定済みのため質問されません。URLを質問された場合は公開汎用ZIPを使用しているため、操作を中止して配布担当者へ連絡してください。
 
 Token入力中は文字も`*`も表示されませんが、入力されています。貼り付けてEnterを押してください。Tokenはファイルへ保存されません。
+
+個人Project移行では、投稿者が移行先アカウントへ集約され、後から再割り当てできません。画面に一覧表示された全Projectとこの制約を確認した場合だけ進めます。
 
 ### 5. 最初は事前診断かPilotを選ぶ
 

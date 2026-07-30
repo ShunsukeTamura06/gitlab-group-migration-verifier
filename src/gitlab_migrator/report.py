@@ -9,6 +9,9 @@ from typing import Any
 
 def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
     """Group移行結果を判定根拠付きMarkdownとして保存する。"""
+    if manifest.get("migration_type") == "personal_projects":
+        _write_personal_project_report(manifest, output)
+        return
     verification = manifest.get("verification") or {}
     project_verification = manifest.get("project_verification") or {}
     projects = manifest.get("projects") or []
@@ -84,6 +87,46 @@ def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
         f"- Export archive: `{(manifest.get('export') or {}).get('archive_path', '不明')}`",
         f"- SHA-256: `{(manifest.get('export') or {}).get('sha256', '不明')}`",
     ]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(output, 0o600)
+
+
+def _write_personal_project_report(
+    manifest: dict[str, Any],
+    output: Path,
+) -> None:
+    """個人Namespace Project一括移行のMarkdownレポートを保存する。"""
+    projects = manifest.get("projects") or []
+    failures = [
+        item for item in projects if item.get("verification_status") != "success"
+    ]
+    lines = [
+        "# GitLab個人Project移行検証レポート",
+        "",
+        f"- Tool Version: {(manifest.get('tool') or {}).get('version', '記録なし')}",
+        f"- 判定: {'成功' if manifest.get('status') == 'success' else '未完了'}",
+        f"- 移行元Project数: {(manifest.get('source') or {}).get('project_count', 0)}",
+        f"- Import完了数: {len(projects)}",
+        f"- 検証失敗数: {len(failures)}",
+        "",
+        "## 重要な制約",
+        "",
+        "- 個人NamespaceへのImportでは投稿者マッピングを保持できません。",
+        "- IssueやMerge Request等の投稿者は移行先アカウントへ集約され、"
+        "後から再割り当てできません。",
+        "",
+        "## Project",
+        "",
+        "| 移行元 | 移行先 | 状態 |",
+        "|---|---|---|",
+    ]
+    for item in projects:
+        lines.append(
+            f"| {item.get('source_path', '不明')} "
+            f"| {item.get('destination_path', '不明')} "
+            f"| {item.get('verification_status', '未判定')} |"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.chmod(output, 0o600)

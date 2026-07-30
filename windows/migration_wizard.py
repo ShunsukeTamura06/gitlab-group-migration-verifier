@@ -453,6 +453,163 @@ def select_mode(*, input_function: InputFunction = input) -> str:
     return {1: "pilot", 2: "production", 3: "preflight"}[selected]
 
 
+def select_migration_scope(*, input_function: InputFunction = input) -> str:
+    """Groupツリーまたは個人Project一括移行を選択する。"""
+    print("\n移行対象を選んでください。")
+    print("  1. Groupと配下の全Project")
+    print("  2. アカウント直下の全Project")
+    selected = prompt_integer(
+        "番号",
+        minimum=1,
+        input_function=input_function,
+    )
+    if selected not in {1, 2}:
+        raise WizardError("移行対象は1または2を選んでください")
+    return "group" if selected == 1 else "personal_projects"
+
+
+def parse_personal_projects(output: str) -> list[dict[str, Any]]:
+    """CLI出力から個人Namespace Project一覧を取り出す。"""
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise WizardError("個人Project一覧の応答を読み取れません") from exc
+    if not isinstance(payload, list):
+        raise WizardError("個人Project一覧の応答形式が不正です")
+    projects = [
+        item
+        for item in payload
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), int)
+        and item.get("name")
+        and item.get("path")
+        and item.get("path_with_namespace")
+    ]
+    if not projects:
+        raise WizardError("移行元アカウント直下にProjectがありません")
+    return projects
+
+
+def execute_personal_project_migration(
+    *,
+    environment: Mapping[str, str],
+    bundle_directory: Path,
+    settings: Mapping[str, object] | None,
+    input_function: InputFunction,
+) -> int:
+    """アカウント直下の全Projectを移行先アカウント直下へ移行する。"""
+    print("\n移行元アカウント直下のProject一覧を取得しています...")
+    list_process = run_cli(
+        ["list-personal-projects"],
+        environment=environment,
+        bundle_directory=bundle_directory,
+        capture_output=True,
+    )
+    if list_process.returncode != 0:
+        print_process_error("個人Project一覧の取得", list_process)
+        return 2
+    projects = parse_personal_projects(list_process.stdout)
+    print(f"\n移行対象: {len(projects)} Project")
+    for project in projects:
+        print(f"  - {project['path_with_namespace']}")
+    print(
+        "\n重要: 個人NamespaceへのImportでは投稿者マッピングを保持できません。"
+    )
+    print(
+        "IssueやMerge Request等の投稿者は移行先アカウントへ集約され、"
+        "後から再割り当てできません。"
+    )
+    print("\n実行内容を選んでください。")
+    print("  1. 事前診断だけ")
+    print("  2. 全Projectを移行")
+    selected = prompt_integer("番号", minimum=1, input_function=input_function)
+    if selected not in {1, 2}:
+        raise WizardError("実行内容は1または2を選んでください")
+    required_free_gib = int(settings["required_free_gib"]) if settings else 50
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    preflight_path = (
+        bundle_directory
+        / "work"
+        / "reports"
+        / f"personal-projects-{timestamp}-preflight.json"
+    )
+    preflight_process = run_cli(
+        [
+            "preflight-personal-projects",
+            "--required-free-gib",
+            str(required_free_gib),
+        ],
+        environment=environment,
+        bundle_directory=bundle_directory,
+        capture_output=True,
+    )
+    if not preflight_process.stdout:
+        print_process_error("事前診断", preflight_process)
+        return 2
+    try:
+        preflight_result = json.loads(preflight_process.stdout)
+    except json.JSONDecodeError as exc:
+        raise WizardError("事前診断の応答を読み取れません") from exc
+    if not isinstance(preflight_result, dict):
+        raise WizardError("事前診断の応答形式が不正です")
+    write_json(preflight_path, preflight_result)
+    show_preflight(preflight_result, preflight_path)
+    if preflight_process.returncode != 0 or preflight_result.get("status") == "failed":
+        print("\n失敗項目を解決するまで移行は開始しません。")
+        return 2
+    if selected == 1:
+        print("\n事前診断のみ完了しました。GitLabへの変更は行っていません。")
+        return 0
+    confirmation = input_function(
+        "\n投稿者集約と全Project移行を了承する場合だけ PERSONAL と入力してください: "
+    ).strip()
+    if confirmation != "PERSONAL":
+        print("移行を中止しました。GitLabへの変更は行っていません。")
+        return 0
+    manifest_path = (
+        bundle_directory
+        / "work"
+        / "manifests"
+        / f"personal-projects-{timestamp}.json"
+    )
+    report_path = (
+        bundle_directory
+        / "work"
+        / "reports"
+        / f"personal-projects-{timestamp}.md"
+    )
+    print("\n個人Projectの一括移行を開始しました。")
+    migration_exit_code = run_cli_with_progress(
+        [
+            "--poll-interval",
+            "20",
+            "--timeout",
+            "7200",
+            "migrate-personal-projects",
+            "--manifest",
+            str(manifest_path),
+        ],
+        environment=environment,
+        bundle_directory=bundle_directory,
+    )
+    if migration_exit_code != 0:
+        print("\n移行は完了していません。同じ操作を再実行しないでください。")
+        print(f"Manifestを保全してください: {manifest_path}")
+        return migration_exit_code
+    report_process = run_cli(
+        ["report", "--manifest", str(manifest_path), "--output", str(report_path)],
+        environment=environment,
+        bundle_directory=bundle_directory,
+    )
+    if report_process.returncode != 0:
+        print(f"\n移行は終了しましたがレポート生成に失敗しました: {manifest_path}")
+        return report_process.returncode
+    print("\n個人Projectの一括移行と自動照合が完了しました。")
+    print(f"  Manifest: {manifest_path}")
+    print(f"  レポート: {report_path}")
+    return 0
+
+
 def choose_destination_parent(
     *,
     environment: Mapping[str, str],
@@ -596,6 +753,14 @@ def execute_wizard(*, input_function: InputFunction = input) -> int:
         settings=settings,
         input_function=input_function,
     )
+    scope = select_migration_scope(input_function=input_function)
+    if scope == "personal_projects":
+        return execute_personal_project_migration(
+            environment=environment,
+            bundle_directory=bundle_directory,
+            settings=settings,
+            input_function=input_function,
+        )
     print("\n移行元からGroup一覧を取得しています...")
     group_process = run_cli(
         ["list-groups"],

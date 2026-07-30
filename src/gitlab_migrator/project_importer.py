@@ -14,7 +14,7 @@ from .models import ProjectImportResult
 
 
 class ProjectImporter:
-    """既存Projectを保護し、指定GroupへProjectをImportする。"""
+    """既存Projectを保護し、Groupまたは個人NamespaceへImportする。"""
 
     def __init__(
         self,
@@ -38,21 +38,33 @@ class ProjectImporter:
         *,
         name: str,
         path: str,
-        namespace_id: int,
+        namespace_id: int | None = None,
+        personal_namespace_path: str | None = None,
     ) -> ProjectImportResult:
-        """Projectを指定NamespaceへImportする。"""
+        """Projectを指定Groupまたは現在利用者の個人NamespaceへImportする。"""
         if not archive.is_file():
             raise ArchiveValidationError(f"Project Importアーカイブが存在しません: {archive}")
         GroupExporter._validate_archive(archive)
-        namespace = self.client.get_json(f"/groups/{namespace_id}")
-        if not isinstance(namespace, dict):
-            raise GitLabApiError("移行先Namespace取得APIの応答が不正です")
-        full_path = f"{namespace['full_path']}/{path}"
+        if namespace_id is not None:
+            namespace = self.client.get_json(f"/groups/{namespace_id}")
+            if not isinstance(namespace, dict):
+                raise GitLabApiError("移行先Namespace取得APIの応答が不正です")
+            namespace_path = str(namespace["full_path"])
+        elif personal_namespace_path:
+            namespace_path = personal_namespace_path
+        else:
+            raise ValueError(
+                "namespace_idまたはpersonal_namespace_pathを指定してください"
+            )
+        full_path = f"{namespace_path}/{path}"
         if self._find_project(full_path):
             raise ExistingGroupError(f"移行先Projectが既に存在します: {full_path}")
+        fields: dict[str, Any] = {"name": name, "path": path}
+        if namespace_id is not None:
+            fields["namespace"] = namespace_id
         response = self.client.post_multipart(
             "/projects/import",
-            {"name": name, "path": path, "namespace": namespace_id},
+            fields,
             file_field="file",
             file_path=archive,
         )

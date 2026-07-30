@@ -44,6 +44,7 @@ class PreflightChecker:
         source_group_id: int | None = None,
         destination_path: str | None = None,
         destination_parent_id: int | None = None,
+        skip_migration_target_checks: bool = False,
     ) -> dict[str, Any]:
         """全診断を実行し、機械判定可能な結果を返す。
 
@@ -51,6 +52,7 @@ class PreflightChecker:
             source_group_id: 移行対象Group ID。
             destination_path: 移行先で作成するGroup Path。
             destination_parent_id: 移行先Parent Group ID。
+            skip_migration_target_checks: Group移行固有の診断を省略するか。
 
         Returns:
             `status`、`checks`、`warnings`を含む診断結果。
@@ -64,13 +66,14 @@ class PreflightChecker:
         self._source_settings_check(checks, warnings)
         self._destination_settings_check(checks, warnings)
         self._work_directory_check(checks)
-        self._migration_target_checks(
-            checks,
-            warnings,
-            source_group_id=source_group_id,
-            destination_path=destination_path,
-            destination_parent_id=destination_parent_id,
-        )
+        if not skip_migration_target_checks:
+            self._migration_target_checks(
+                checks,
+                warnings,
+                source_group_id=source_group_id,
+                destination_path=destination_path,
+                destination_parent_id=destination_parent_id,
+            )
         if source_version and destination_version:
             warnings.extend(
                 self._version_warnings(source_version, destination_version)

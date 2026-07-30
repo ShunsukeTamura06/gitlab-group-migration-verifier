@@ -8,12 +8,13 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 本ツールのRelease StatusはBetaです。各組織の移行手順全体を代替するものではありません。
 
 > [!IMPORTANT]
-> 移行前に[移行対象・非対象](docs/compatibility.md)を確認してください。選択したGroupツリーは一括移行しますが、GitLab Instance全体、共有Project、ユーザーアカウント、Secret、Token、Runner、Registry等は対象外です。GitLab標準Exportへ委ねる項目には手動確認が必要です。
+> 移行前に[移行対象・非対象](docs/compatibility.md)を確認してください。選択したGroupツリー、またはToken利用者の個人Namespace直下にある全Projectを一括移行できます。GitLab Instance全体、共有Project、ユーザーアカウント、Secret、Token、Runner、Registry等は対象外です。
 
 ## 主な機能
 
 - Group / Subgroup階層、Label、MilestoneのExport / Import
 - Group配下の全Project一括Export / Import
+- アカウント直下の全個人Projectを移行先アカウント直下へ一括Export / Import
 - 相対Namespaceに基づくProject配置
 - 非同期Export / Importの待機、API timeout、指数バックオフ
 - Archiveの形式、展開Path、サイズ、SHA-256検査
@@ -43,7 +44,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 配布担当者:
 
-1. [v1.2.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.4)から公開Windows ZIPを取得します。
+1. [v1.3.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.0)から公開Windows ZIPを取得します。
 2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
 3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
 4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
@@ -55,7 +56,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 1. 社内配布担当者から受領したZIPを「すべて展開」します。
 2. `MIGRATION-SCOPE.md`で移行対象・非対象を確認します。
 3. `Start-GitLabMigration.cmd`をダブルクリックします。
-4. Access Tokenを非表示入力し、Groupと実行Modeを番号で選びます。
+4. Access Tokenを非表示入力し、Group移行または個人Project一括移行を番号で選びます。
 
 利用者へGitLab URL、社内CA、必要容量は質問しません。質問された場合は公開汎用ZIPを誤って使用しているため、操作を中止します。初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。
 
@@ -63,19 +64,19 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ### macOS / Linux・上級者向け
 
-利用者は変更される`main`ではなく、[v1.2.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.4)のwheelをVersion固定で使用してください。
+利用者は変更される`main`ではなく、[v1.3.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.0)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.4/gitlab_group_migrator-1.2.4-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.0/gitlab_group_migrator-1.3.0-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.4/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.0/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.2.4-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.3.0-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -83,7 +84,7 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.4'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.3.0'
 ```
 
 ## 接続設定
@@ -137,6 +138,20 @@ gitlab-migrator report \
 ```
 
 同じPathがDestinationに存在すると、デフォルトで停止します。`--reuse-existing-group`は対象Groupを意図的に再利用する場合だけ指定してください。
+
+## 個人Project一括移行
+
+移行元Token利用者の個人Namespace直下にある全Projectを、移行先Token利用者の個人Namespace直下へ同じPathで移行します。
+
+```bash
+gitlab-migrator preflight-personal-projects --required-free-gib 50
+
+gitlab-migrator --poll-interval 20 --timeout 7200 \
+  migrate-personal-projects \
+  --manifest work/manifests/personal-projects.json
+```
+
+移行先に同じProject Pathが1件でも存在する場合、Preflightは変更前に失敗します。個人NamespaceへのImportでは投稿者マッピングを保持できず、IssueやMerge Request等の投稿者は移行先アカウントへ集約され、後から再割り当てできません。
 
 ## 二段階移行
 

@@ -5,9 +5,12 @@
 
 ## 1回の実行で選択する範囲
 
-1回の実行単位は、移行元で選択した1つのGroupツリーです。
+Windowsウィザードでは、次のどちらかを1回の実行単位として選びます。
 
-対象に含まれます。
+1. 移行元で選択した1つのGroupツリー
+2. 移行元Token利用者の個人Namespace直下にある全Project
+
+Groupツリー移行には次が含まれます。
 
 - 選択したRoot Group
 - Root Group配下のすべてのSubgroup
@@ -18,10 +21,15 @@
 
 - 選択したGroupツリー外のGroupとProject
 - 別のTop-level Group
-- Personal NamespaceのProject
+- Personal NamespaceのProject（個人Project一括移行を選んだ場合は対象）
 - 対象Groupへ共有されているだけのProject
 
 複数の独立したTop-level Groupを移行する場合は、Groupごとに実行します。本ツールはGitLab Instance全体を1回で移行するものではありません。
+
+個人Project一括移行では、移行元Token利用者の個人Namespace直下だけを列挙し、移行先Token利用者の個人Namespace直下へ同じProject PathでImportします。他ユーザーの個人ProjectとGroup配下Projectは含めません。移行先に同じPathが1件でも存在する場合は、変更前の事前診断で停止します。
+
+> [!WARNING]
+> GitLabの個人NamespaceへのImportではユーザー投稿者マッピングを保持できません。Issue、Merge Request、Comment等の投稿者は移行先の個人Namespace所有者へ集約され、後から再割り当てできません。
 
 ## 自動移行・自動照合する項目
 
@@ -52,7 +60,7 @@ ProjectのDescription、Visibility、Archived状態の差異は警告として�
 - LFSと大容量Repository
 - Visibilityなど、自動照合で警告となる属性
 
-Issue、Merge Request、Comment等の作成者を正しく対応させるには、移行前に[ユーザーマッピング](user-mapping.md)を完了する必要があります。
+Group配下へImportする場合、Issue、Merge Request、Comment等の作成者を正しく対応させるには、移行前に[ユーザーマッピング](user-mapping.md)を完了する必要があります。個人NamespaceへのImportでは、このマッピング自体がサポートされません。
 
 ## 移行対象外として別途再設定する項目
 

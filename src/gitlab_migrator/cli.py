@@ -18,6 +18,11 @@ from .group_importer import GroupImporter
 from .group_migrator import GroupMigrator
 from .group_verifier import GroupVerifier
 from .manifest import ManifestStore, redact_secrets
+from .personal_project_migrator import (
+    PersonalProjectMigrator,
+    list_personal_projects,
+    personal_projects_preflight,
+)
 from .preflight import PreflightChecker
 from .project_exporter import ProjectExporter
 from .project_importer import ProjectImporter
@@ -48,6 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
         "list-destination-groups",
         help="移行先で選択可能な親Group一覧を表示",
     )
+    subparsers.add_parser(
+        "list-personal-projects",
+        help="移行元アカウント直下のProject一覧を表示",
+    )
     preflight = subparsers.add_parser(
         "preflight",
         help="接続・認証・Import設定を非破壊で事前診断",
@@ -61,6 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--source-group-id", type=int)
     preflight.add_argument("--destination-path")
     preflight.add_argument("--destination-parent-id", type=int)
+    personal_preflight = subparsers.add_parser(
+        "preflight-personal-projects",
+        help="個人Namespace Project一括移行を非破壊で事前診断",
+    )
+    personal_preflight.add_argument("--required-free-gib", type=float, default=0)
+    personal_migration = subparsers.add_parser(
+        "migrate-personal-projects",
+        help="アカウント直下の全Projectを移行先アカウント直下へ移行",
+    )
+    personal_migration.add_argument("--manifest", type=Path, required=True)
     subparsers.add_parser("import-settings", help="移行先のImport関連設定を表示")
     subparsers.add_parser(
         "enable-project-import", help="移行先でgitlab_project Import Sourceを有効化"
@@ -232,6 +251,8 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
         return _list_available_groups(source_client(), owned=True)
     if args.command == "list-destination-groups":
         return _list_available_groups(destination_client(), owned=False)
+    if args.command == "list-personal-projects":
+        return list_personal_projects(source_client())
     if args.command == "preflight":
         if args.required_free_gib < 0:
             raise MigratorError("--required-free-gibは0以上で指定してください")
@@ -244,6 +265,23 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
             destination_path=args.destination_path,
             destination_parent_id=args.destination_parent_id,
         )
+    if args.command == "preflight-personal-projects":
+        if args.required_free_gib < 0:
+            raise MigratorError("--required-free-gibは0以上で指定してください")
+        return personal_projects_preflight(
+            source_client(),
+            destination_client(),
+            required_free_bytes=int(args.required_free_gib * 1024**3),
+        )
+    if args.command == "migrate-personal-projects":
+        return PersonalProjectMigrator(
+            source_client(),
+            destination_client(),
+            export_dir=DEFAULT_PROJECT_EXPORT_DIR,
+            manifest_path=args.manifest,
+            poll_interval_seconds=args.poll_interval,
+            timeout_seconds=args.timeout,
+        ).migrate()
     if args.command == "import-settings":
         settings = destination_client().get_json("/application/settings")
         return {
@@ -527,7 +565,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     if (
         args.command
-        in {"preflight", "verify-group", "verify-tree", "verify-project-placement"}
+        in {
+            "preflight",
+            "preflight-personal-projects",
+            "verify-group",
+            "verify-tree",
+            "verify-project-placement",
+        }
         and isinstance(result, dict)
         and result.get("status") == "failed"
     ):

@@ -4,7 +4,7 @@
 
 ## 公開Releaseから取得する
 
-1. GitHub Releaseから`gitlab-group-migrator-windows-v1.2.4.zip`をDownloadします。
+1. GitHub Releaseから`gitlab-group-migrator-windows-v1.3.0.zip`をDownloadします。
 2. 公開Releaseの`SHA256SUMS`でZIPを検証します。
 3. ZIPを右クリックし、「すべて展開」を選びます。
 
