@@ -5,6 +5,7 @@ from __future__ import annotations
 import getpass
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -211,6 +212,21 @@ class MigrationWizardTest(unittest.TestCase):
         destination_prompt = hidden_input.call_args_list[1].args[0]
         self.assertIn("Group作成・Import権限", destination_prompt)
         self.assertNotIn("Admin", destination_prompt)
+
+    def test_captured_cli_output_is_forced_to_utf8(self) -> None:
+        """親環境がCP932でも子CLIの日本語出力をUTF-8で読み取る。"""
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "cp932"
+        process = migration_wizard.run_cli(
+            ["preflight", "--help"],
+            environment=environment,
+            bundle_directory=Path(__file__).resolve().parent.parent,
+            capture_output=True,
+        )
+
+        self.assertEqual(0, process.returncode)
+        self.assertIn("作業端末に必要な空き容量", process.stdout)
+        self.assertNotIn("\ufffd", process.stdout)
 
     def test_preconfigured_urls_skip_url_and_ca_prompts(self) -> None:
         """社内配布設定があれば利用者へURLとCAを質問しない。"""

@@ -31,7 +31,7 @@ Application SettingsはGitLabインスタンス管理者専用のAPIです。移
 - `gitlab_project` Import Sourceが有効
 - Import上限が対象Archiveを受け入れ可能
 
-v1.2.3以降ではこの確認を`skipped`として警告に留め、事前診断を失敗させません。管理者の確認結果と警告を移行責任者が確認した後、Windowsウィザードへ`CONTINUE`と入力して続行できます。
+v1.2.3以降ではこの確認を`skipped`として警告に留め、事前診断を失敗させません。管理者の確認結果と警告を移行責任者が確認した後、Windowsウィザードへ`CONTINUE`と入力して続行できます。Windowsで「事前診断の応答を読み取れません」と表示されるv1.2.3の文字コード問題は、v1.2.4で修正されています。
 
 ### `failed_relations`がある
 

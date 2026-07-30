@@ -43,7 +43,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 配布担当者:
 
-1. [v1.2.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.3)から公開Windows ZIPを取得します。
+1. [v1.2.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.4)から公開Windows ZIPを取得します。
 2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
 3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
 4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
@@ -63,19 +63,19 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ### macOS / Linux・上級者向け
 
-利用者は変更される`main`ではなく、[v1.2.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.3)のwheelをVersion固定で使用してください。
+利用者は変更される`main`ではなく、[v1.2.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.4)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.3/gitlab_group_migrator-1.2.3-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.4/gitlab_group_migrator-1.2.4-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.3/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.4/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.2.3-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.4-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -83,7 +83,7 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.3'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.4'
 ```
 
 ## 接続設定
