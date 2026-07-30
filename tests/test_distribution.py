@@ -7,11 +7,11 @@ import contextlib
 import io
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from gitlab_migrator.cli import _client_from_env, build_parser
-from gitlab_migrator.errors import ConfigurationError
 from gitlab_migrator import __version__
+from gitlab_migrator.cli import _client_from_env, build_parser, run
+from gitlab_migrator.errors import ConfigurationError
 
 
 class DistributionBoundaryTest(unittest.TestCase):
@@ -42,22 +42,63 @@ class DistributionBoundaryTest(unittest.TestCase):
             "SOURCE_GITLAB_ROOT_PASSWORD": "local-only-password",
         }
 
-        with patch.dict(os.environ, environment, clear=True):
-            with self.assertRaisesRegex(
-                ConfigurationError,
-                "SOURCE_GITLAB_TOKEN",
-            ):
-                _client_from_env("SOURCE")
+        with patch.dict(
+            os.environ,
+            environment,
+            clear=True,
+        ), self.assertRaisesRegex(
+            ConfigurationError,
+            "SOURCE_GITLAB_TOKEN",
+        ):
+            _client_from_env("SOURCE")
 
     def test_cli_exposes_package_version(self) -> None:
         """問い合わせ時に利用者が実行Versionを確認できる。"""
         output = io.StringIO()
 
-        with contextlib.redirect_stdout(output):
-            with self.assertRaisesRegex(SystemExit, "0"):
-                build_parser().parse_args(["--version"])
+        with contextlib.redirect_stdout(output), self.assertRaisesRegex(
+            SystemExit,
+            "0",
+        ):
+            build_parser().parse_args(["--version"])
 
         self.assertIn(__version__, output.getvalue())
+
+    def test_source_group_listing_uses_supported_ordering(self) -> None:
+        """移行元Group一覧でGitLab互換のorder_byを使用する。"""
+        client = Mock()
+        client.list_all.return_value = [
+            {"id": 2, "name": "Beta", "path": "beta", "full_path": "root/beta"},
+            {"id": 1, "name": "Alpha", "path": "alpha", "full_path": "alpha"},
+        ]
+
+        with patch("gitlab_migrator.cli.source_client", return_value=client):
+            result = run(build_parser().parse_args(["list-groups"]))
+
+        client.list_all.assert_called_once_with(
+            "/groups",
+            params={"order_by": "path", "sort": "asc", "owned": "true"},
+        )
+        self.assertEqual([1, 2], [group["id"] for group in result])
+
+    def test_destination_group_listing_uses_supported_ordering(self) -> None:
+        """移行先Group一覧でもGitLab互換のorder_byを使用する。"""
+        client = Mock()
+        client.list_all.return_value = [
+            {"id": 2, "name": "Beta", "path": "beta", "full_path": "root/beta"},
+            {"id": 1, "name": "Alpha", "path": "alpha", "full_path": "alpha"},
+        ]
+
+        with patch("gitlab_migrator.cli.destination_client", return_value=client):
+            result = run(
+                build_parser().parse_args(["list-destination-groups"])
+            )
+
+        client.list_all.assert_called_once_with(
+            "/groups",
+            params={"order_by": "path", "sort": "asc"},
+        )
+        self.assertEqual([1, 2], [group["id"] for group in result])
 
 
 if __name__ == "__main__":

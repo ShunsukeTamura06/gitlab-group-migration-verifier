@@ -194,18 +194,44 @@ def _client_from_env(prefix: str) -> GitLabClient:
     return GitLabClient(GitLabConfig.from_env(prefix))
 
 
+def _list_available_groups(
+    client: GitLabClient,
+    *,
+    owned: bool,
+) -> list[dict[str, Any]]:
+    """選択可能なGroupをGitLab Version互換の並び順で取得する。
+
+    Args:
+        client: Group一覧を取得するGitLab Client。
+        owned: 明示的にOwnerであるGroupだけへ限定するか。
+
+    Returns:
+        `full_path`の昇順で並べたGroup一覧。
+    """
+    params = {"order_by": "path", "sort": "asc"}
+    if owned:
+        params["owned"] = "true"
+    groups = client.list_all("/groups", params=params)
+    return sorted(
+        groups,
+        key=lambda group: (
+            str(
+                group.get("full_path")
+                or group.get("path")
+                or group.get("name")
+                or ""
+            ).casefold(),
+            group.get("id") if isinstance(group.get("id"), int) else 0,
+        ),
+    )
+
+
 def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     """解析済み引数に対応する処理を実行する。"""
     if args.command == "list-groups":
-        return source_client().list_all(
-            "/groups",
-            params={"owned": "true", "order_by": "full_path"},
-        )
+        return _list_available_groups(source_client(), owned=True)
     if args.command == "list-destination-groups":
-        return destination_client().list_all(
-            "/groups",
-            params={"order_by": "full_path"},
-        )
+        return _list_available_groups(destination_client(), owned=False)
     if args.command == "preflight":
         if args.required_free_gib < 0:
             raise MigratorError("--required-free-gibは0以上で指定してください")
