@@ -38,10 +38,17 @@ class ProjectExportClient:
 class ProjectImportClient:
     """Project Import向けFakeクライアント。"""
 
-    def __init__(self, *, failed_relations: list[dict[str, object]] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        failed_relations: list[dict[str, object]] | None = None,
+        full_path: str = "destination/subgroup/api-service",
+    ) -> None:
         """Import状態とRelation失敗を初期化する。"""
         self.import_statuses = ["scheduled", "finished"]
         self.failed_relations = failed_relations or []
+        self.full_path = full_path
+        self.submitted_fields: dict[str, object] = {}
 
     @staticmethod
     def encode_id(value: object) -> str:
@@ -52,7 +59,7 @@ class ProjectImportClient:
         """Namespaceまたは非同期Import状態を返す。"""
         if path == "/groups/35":
             return {"id": 35, "full_path": "destination/subgroup"}
-        if "destination/subgroup/api-service" in path:
+        if self.full_path in path:
             raise GitLabApiError("not found", status=404)
         if path == "/projects/1/import":
             status = self.import_statuses.pop(0)
@@ -67,11 +74,12 @@ class ProjectImportClient:
             }
         return {
             "id": 1,
-            "path_with_namespace": "destination/subgroup/api-service",
+            "path_with_namespace": self.full_path,
         }
 
-    def post_multipart(self, *_args: object, **_kwargs: object) -> ApiResponse:
+    def post_multipart(self, *args: object, **_kwargs: object) -> ApiResponse:
         """Project Import受付レスポンスを返す。"""
+        self.submitted_fields = dict(args[1])  # type: ignore[arg-type]
         return ApiResponse(202, {}, b'{"id":1,"import_status":"scheduled"}')
 
 
@@ -146,6 +154,32 @@ class ProjectMigrationTest(unittest.TestCase):
                     path="api-service",
                     namespace_id=35,
                 )
+
+    def test_imports_to_current_users_personal_namespace(self) -> None:
+        """Namespace指定を省略して移行先Token利用者の直下へImportする。"""
+        client = ProjectImportClient(full_path="destination-user/api-service")
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "project.tar.gz"
+            archive.write_bytes(tar_gz_bytes("project.json"))
+            result = ProjectImporter(
+                client,  # type: ignore[arg-type]
+                poll_interval_seconds=3,
+                timeout_seconds=10,
+                sleep=clock.sleep,
+                monotonic=clock.monotonic,
+            ).import_project(
+                archive,
+                name="api-service",
+                path="api-service",
+                personal_namespace_path="destination-user",
+            )
+
+        self.assertEqual("destination-user/api-service", result.full_path)
+        self.assertEqual(
+            {"name": "api-service", "path": "api-service"},
+            client.submitted_fields,
+        )
 
 
 if __name__ == "__main__":

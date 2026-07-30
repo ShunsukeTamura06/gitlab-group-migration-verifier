@@ -343,11 +343,12 @@ class MigrationWizardTest(unittest.TestCase):
                 "",
                 "",
                 "1",
+                "1",
                 "3",
                 "",
                 "",
-                "",
-                "",
+                "1",
+                "50",
             ]
         )
         group_result = subprocess.CompletedProcess(
@@ -396,6 +397,123 @@ class MigrationWizardTest(unittest.TestCase):
         called_arguments = [call.args[0] for call in run_cli.call_args_list]
         self.assertEqual("list-groups", called_arguments[0][0])
         self.assertEqual("preflight", called_arguments[1][0])
+
+    def test_personal_project_preflight_does_not_start_migration(self) -> None:
+        """個人Projectの事前診断だけではImportを開始しない。"""
+        project_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "id": 10,
+                        "name": "Alpha",
+                        "path": "alpha",
+                        "path_with_namespace": "source-user/alpha",
+                    }
+                ]
+            ),
+            stderr="",
+        )
+        preflight_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "status": "warning",
+                    "source_version": "17.0.0",
+                    "destination_version": "19.1.0",
+                    "checks": [],
+                    "warnings": ["投稿者は移行先アカウントへ集約されます"],
+                }
+            ),
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(
+                migration_wizard,
+                "run_cli",
+                side_effect=[project_result, preflight_result],
+            ) as run_cli:
+                exit_code = migration_wizard.execute_personal_project_migration(
+                    environment={},
+                    bundle_directory=Path(temporary),
+                    settings={"required_free_gib": 50},
+                    input_function=lambda _: "1",
+                )
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(2, run_cli.call_count)
+        self.assertEqual(
+            "list-personal-projects",
+            run_cli.call_args_list[0].args[0][0],
+        )
+        self.assertEqual(
+            "preflight-personal-projects",
+            run_cli.call_args_list[1].args[0][0],
+        )
+
+    def test_personal_project_migration_requires_explicit_confirmation(self) -> None:
+        """投稿者集約を明示了承した場合だけ全Project移行を開始する。"""
+        project_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "id": 10,
+                        "name": "Alpha",
+                        "path": "alpha",
+                        "path_with_namespace": "source-user/alpha",
+                    }
+                ]
+            ),
+            stderr="",
+        )
+        preflight_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "status": "warning",
+                    "source_version": "17.0.0",
+                    "destination_version": "19.1.0",
+                    "checks": [],
+                    "warnings": ["投稿者は移行先アカウントへ集約されます"],
+                }
+            ),
+            stderr="",
+        )
+        report_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="{}",
+            stderr="",
+        )
+        answers = iter(["2", "PERSONAL"])
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch.object(
+                    migration_wizard,
+                    "run_cli",
+                    side_effect=[project_result, preflight_result, report_result],
+                ),
+                patch.object(
+                    migration_wizard,
+                    "run_cli_with_progress",
+                    return_value=0,
+                ) as migrate,
+            ):
+                exit_code = migration_wizard.execute_personal_project_migration(
+                    environment={},
+                    bundle_directory=Path(temporary),
+                    settings={"required_free_gib": 50},
+                    input_function=lambda _: next(answers),
+                )
+
+        self.assertEqual(0, exit_code)
+        migration_arguments = migrate.call_args.args[0]
+        self.assertIn("migrate-personal-projects", migration_arguments)
 
     def test_non_https_remote_url_is_rejected(self) -> None:
         """社内GitLab接続でTLS検証を省略させない。"""

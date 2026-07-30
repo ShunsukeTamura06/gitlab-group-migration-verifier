@@ -37,13 +37,13 @@ Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Export�
 
 暗号化された管理端末または作業用VMを使用し、作業ディレクトリへのアクセスを担当者へ限定します。
 
-Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.2.4.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
+Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.3.0.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
 
 ```bash
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./gitlab_group_migrator-1.2.4-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.3.0-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -130,6 +130,12 @@ Project Importが`finished`でも`failed_relations`が1件以上あれば部分�
 10. Tokenを失効し、アーカイブを保持ポリシーに従って処理する。
 
 受入確認は[受入確認チェックリスト](acceptance-checklist.md)へ記録します。
+
+## 個人Project一括移行
+
+Windowsウィザードで「アカウント直下の全Project」を選ぶと、移行元Token利用者の個人Projectを列挙し、移行先Token利用者の個人Namespaceへ同じPathでImportします。本番前に「事前診断だけ」を実行し、対象件数と全Path、移行先の競合がないことを確認します。
+
+個人NamespaceへのImportでは投稿者マッピングを保持できません。Issue、Merge Request、Comment等の投稿者は移行先アカウントへ集約され、後から再割り当てできません。この制約を受け入れられない場合は、個人Namespaceではなく承認済みGroup配下への移行方式を選びます。
 
 実行例:
 
