@@ -28,6 +28,29 @@ REQUIRED_DOCUMENTS = {
 }
 
 
+def copy_runtime_file(source: Path, destination: Path) -> None:
+    """配布用Runtime FileをWindows互換形式でコピーする。
+
+    Args:
+        source: コピー元File。
+        destination: コピー先File。
+
+    Raises:
+        ValueError: CMDにASCII以外の文字が含まれる場合。
+    """
+    if source.suffix.lower() != ".cmd":
+        shutil.copy2(source, destination)
+        return
+    try:
+        content = source.read_text(encoding="ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"Windows CMDにはASCII文字だけを使用してください: {source.name}"
+        ) from exc
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    destination.write_bytes(normalized.replace("\n", "\r\n").encode("ascii"))
+
+
 def wheel_version(wheel: Path) -> str:
     """Wheel名からVersionを取得する。
 
@@ -97,7 +120,10 @@ def create_bundle(wheel: Path, output_directory: Path) -> Path:
         bundle_directory = Path(temporary) / bundle_name
         bundle_directory.mkdir()
         for filename in REQUIRED_FILES:
-            shutil.copy2(source_directory / filename, bundle_directory / filename)
+            copy_runtime_file(
+                source_directory / filename,
+                bundle_directory / filename,
+            )
         for destination_name, source in REQUIRED_DOCUMENTS.items():
             shutil.copy2(source, bundle_directory / destination_name)
         shutil.copy2(wheel, bundle_directory / wheel.name)

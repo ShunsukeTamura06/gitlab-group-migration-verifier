@@ -62,6 +62,30 @@ class WindowsBundleTest(unittest.TestCase):
                 str(example["destination_gitlab_url"]).endswith(".invalid")
             )
 
+    def test_bundle_batch_launchers_are_ascii_crlf(self) -> None:
+        """CMDを文字化けしないASCII・CRLF形式で梱包する。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wheel = root / "gitlab_group_migrator-1.2.0-py3-none-any.whl"
+            wheel.write_bytes(b"wheel-content")
+
+            bundle = package_windows_bundle.create_bundle(wheel, root / "dist")
+
+            with ZipFile(bundle) as archive:
+                command_files = {
+                    name: archive.read(name)
+                    for name in archive.namelist()
+                    if name.endswith(".cmd")
+                }
+            self.assertEqual(2, len(command_files))
+            for name, content in command_files.items():
+                with self.subTest(name=name):
+                    self.assertTrue(content.isascii())
+                    self.assertFalse(content.startswith(b"\xef\xbb\xbf"))
+                    self.assertIn(b"\r\n", content)
+                    self.assertNotIn(b"\n", content.replace(b"\r\n", b""))
+                    self.assertIn(b"GITLAB_MIGRATOR_NO_PAUSE", content)
+
     def test_bootstrap_rejects_tampered_wheel(self) -> None:
         """同梱Wheelが変更されていたら起動前に拒否する。"""
         with tempfile.TemporaryDirectory() as temporary:
