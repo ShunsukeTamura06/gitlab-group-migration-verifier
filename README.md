@@ -7,6 +7,9 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 本ツールのRelease StatusはBetaです。各組織の移行手順全体を代替するものではありません。
 
+> [!IMPORTANT]
+> 移行前に[移行対象・非対象](docs/compatibility.md)を確認してください。選択したGroupツリーは一括移行しますが、GitLab Instance全体、共有Project、ユーザーアカウント、Secret、Token、Runner、Registry等は対象外です。GitLab標準Exportへ委ねる項目には手動確認が必要です。
+
 ## 主な機能
 
 - Group / Subgroup階層、Label、MilestoneのExport / Import
@@ -32,19 +35,43 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ## インストール
 
-利用者は変更される`main`ではなく、[v1.1.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.1.0)のwheelをVersion固定で使用してください。
+### Windows社内配布（推奨）
+
+配布担当者:
+
+1. [v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)から公開Windows ZIPを取得します。
+2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
+3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
+4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
+
+実URLはGitHub、Source Code、Command Line引数、Shell履歴へ保存しません。Access Tokenも社内専用ZIPへ含めません。詳細は[Windows社内配布ガイド](docs/distributor-guide.md)を参照してください。
+
+利用者:
+
+1. 社内配布担当者から受領したZIPを「すべて展開」します。
+2. `MIGRATION-SCOPE.md`で移行対象・非対象を確認します。
+3. `Start-GitLabMigration.cmd`をダブルクリックします。
+4. Access Tokenを非表示入力し、Groupと実行Modeを番号で選びます。
+
+利用者へGitLab URL、社内CA、必要容量は質問しません。質問された場合は公開汎用ZIPを誤って使用しているため、操作を中止します。初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。
+
+配布担当者と利用者のPCにPythonがない場合だけ、[Python公式Windows版](https://www.python.org/downloads/windows/)からPython 3.11以上をInstallし、Python Launcherを有効にしてください。
+
+### macOS / Linux・上級者向け
+
+利用者は変更される`main`ではなく、[v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/gitlab_group_migrator-1.1.0-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.0/gitlab_group_migrator-1.2.0-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.1.0/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.0/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.1.0-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.0-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -52,12 +79,12 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.1.0'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.0'
 ```
 
 ## 接続設定
 
-Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
+Windows社内専用ZIPではGitLab URLが配布担当者により設定済みで、利用者は画面の非表示入力欄へ移行元・移行先のTokenだけを貼り付けます。以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
@@ -136,11 +163,12 @@ Membersの全Access Level、Board、Badge、Group Wiki、Epic、Iteration、Vari
 
 実施前に次の順で確認してください。
 
-1. [利用者Quickstart](docs/user-quickstart.md)
-2. [移行申請テンプレート](docs/migration-request-template.md)
-3. [ユーザーマッピング](docs/user-mapping.md)
-4. [移行Runbook](docs/migration-runbook.md)
-5. [受入確認チェックリスト](docs/acceptance-checklist.md)
+1. [Windows社内配布ガイド](docs/distributor-guide.md)
+2. [利用者Quickstart](docs/user-quickstart.md)
+3. [移行申請テンプレート](docs/migration-request-template.md)
+4. [ユーザーマッピング](docs/user-mapping.md)
+5. [移行Runbook](docs/migration-runbook.md)
+6. [受入確認チェックリスト](docs/acceptance-checklist.md)
 
 詳細な対応範囲は[対応範囲](docs/compatibility.md)、失敗時は[トラブルシューティング](docs/troubleshooting.md)を参照してください。Exportアーカイブ、Manifest、レポートの取扱いは[セキュリティ方針](SECURITY.md)、問い合わせ方法は[SUPPORT.md](SUPPORT.md)に従ってください。
 

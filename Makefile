@@ -14,7 +14,7 @@ test:
 	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests -v
 
 compile:
-	PYTHONPATH=src $(PYTHON) -m compileall -q src tests
+	PYTHONPATH=src $(PYTHON) -m compileall -q src tests windows
 
 preflight:
 	$(CLI) preflight

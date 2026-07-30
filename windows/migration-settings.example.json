@@ -1,0 +1,6 @@
+{
+  "source_gitlab_url": "https://source.example.invalid",
+  "destination_gitlab_url": "https://destination.example.invalid",
+  "required_free_gib": 50,
+  "prompt_for_ca_bundle": false
+}

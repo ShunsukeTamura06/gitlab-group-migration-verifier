@@ -1,5 +1,7 @@
 # 受入確認チェックリスト
 
+開始前に[移行対象・非対象](compatibility.md)を確認し、対象外項目の再設定結果もこの受入判断へ含めてください。
+
 ## 自動判定
 
 - [ ] Manifestの`status`が`success`または承認済み`warning`
