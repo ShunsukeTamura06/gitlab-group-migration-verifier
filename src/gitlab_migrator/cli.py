@@ -1,31 +1,29 @@
-"""GitLab Group移行検証CLI。"""
+"""GitLab Group移行CLI。"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from .bootstrap import FullTreeBootstrapper, MinimalGroupBootstrapper
-from .auth import password_grant_token
+from . import __version__
 from .client import GitLabClient
 from .config import GitLabConfig
-from .errors import ExistingGroupError, GitLabApiError, MigratorError
+from .errors import GitLabApiError, MigratorError
 from .group_exporter import GroupExporter
 from .group_importer import GroupImporter
 from .group_migrator import GroupMigrator
 from .group_verifier import GroupVerifier
 from .manifest import ManifestStore, redact_secrets
+from .preflight import PreflightChecker
 from .project_exporter import ProjectExporter
 from .project_importer import ProjectImporter
 from .project_verifier import ProjectTreeVerifier
-from .preflight import PreflightChecker
 from .report import write_markdown_report
 from .tree_migrator import TreeBundleExporter, TreeBundleImporter, TreeMigrator
-
 
 DEFAULT_EXPORT_DIR = Path("work/exports/groups")
 DEFAULT_PROJECT_EXPORT_DIR = Path("work/exports/projects")
@@ -35,13 +33,34 @@ DEFAULT_REPORT_DIR = Path("work/reports")
 
 def build_parser() -> argparse.ArgumentParser:
     """コマンドライン引数Parserを生成する。"""
-    parser = argparse.ArgumentParser(description="GitLabグループ移行検証ツール")
+    parser = argparse.ArgumentParser(description="GitLabグループ移行ツール")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     parser.add_argument("--poll-interval", type=float, default=5.0, help="ポーリング間隔（秒）")
     parser.add_argument("--timeout", type=float, default=600.0, help="処理タイムアウト（秒）")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("list-groups", help="移行元のGroup一覧を表示")
-    subparsers.add_parser("preflight", help="接続・認証・Import設定を非破壊で事前診断")
+    subparsers.add_parser(
+        "list-destination-groups",
+        help="移行先で選択可能な親Group一覧を表示",
+    )
+    preflight = subparsers.add_parser(
+        "preflight",
+        help="接続・認証・Import設定を非破壊で事前診断",
+    )
+    preflight.add_argument(
+        "--required-free-gib",
+        type=float,
+        default=0,
+        help="作業端末に必要な空き容量（GiB、0は容量判定なし）",
+    )
+    preflight.add_argument("--source-group-id", type=int)
+    preflight.add_argument("--destination-path")
+    preflight.add_argument("--destination-parent-id", type=int)
     subparsers.add_parser("import-settings", help="移行先のImport関連設定を表示")
     subparsers.add_parser(
         "enable-project-import", help="移行先でgitlab_project Import Sourceを有効化"
@@ -49,16 +68,6 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("revoke-current-token", help="現在使用中の移行先PATを失効")
     list_subgroups = subparsers.add_parser("list-subgroups", help="移行先Group直下のSubgroup一覧")
     list_subgroups.add_argument("--destination-group-id", type=int, required=True)
-
-    bootstrap = subparsers.add_parser("bootstrap-groups", help="最小検証用Groupデータを作成")
-    bootstrap.add_argument("--name", default="migration-source")
-    bootstrap.add_argument("--path", default="migration-source")
-    bootstrap_tree = subparsers.add_parser(
-        "bootstrap-tree",
-        help="複数階層と7 Projectを持つ一括移行検証データを作成",
-    )
-    bootstrap_tree.add_argument("--name", default="migration-full-source")
-    bootstrap_tree.add_argument("--path", default="migration-full-source")
 
     export = subparsers.add_parser("export-group", help="GroupをExport")
     export.add_argument("--source-group-id", type=int, required=True)
@@ -71,14 +80,14 @@ def build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument("--destination-parent-id", type=int)
     import_parser.add_argument("--reuse-existing-group", action="store_true")
 
-    migrate = subparsers.add_parser("migrate-group", help="GroupをExport/Importして検証")
+    migrate = subparsers.add_parser("migrate-group", help="GroupをExport/Importして結果を照合")
     _add_migration_arguments(migrate)
     project_mode = migrate.add_mutually_exclusive_group()
     project_mode.add_argument("--exclude-projects", action="store_true", default=True)
     project_mode.add_argument(
         "--include-projects",
         action="store_true",
-        help="migrate-groupはGroup専用。Projectを含める場合はmigrate-treeを使用",
+        help="Projectも含めてTree全体を移行（migrate-treeと同等）",
     )
 
     migrate_tree = subparsers.add_parser(
@@ -115,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_verification_arguments(verify_tree)
 
-    snapshot = subparsers.add_parser("snapshot-group", help="逐次検証用に移行元Groupを保存")
+    snapshot = subparsers.add_parser("snapshot-group", help="逐次移行用に移行元Groupを保存")
     snapshot.add_argument("--source-group-id", type=int, required=True)
     snapshot.add_argument("--output", type=Path, required=True)
 
@@ -125,13 +134,6 @@ def build_parser() -> argparse.ArgumentParser:
     verify_snapshot.add_argument("--source-snapshot", type=Path, required=True)
     verify_snapshot.add_argument("--destination-group-id", type=int, required=True)
     verify_snapshot.add_argument("--output", type=Path)
-
-    bootstrap_project = subparsers.add_parser(
-        "bootstrap-project", help="最小検証用Projectを移行元Groupへ作成"
-    )
-    bootstrap_project.add_argument("--source-namespace-id", type=int, required=True)
-    bootstrap_project.add_argument("--name", default="api-service")
-    bootstrap_project.add_argument("--path", default="api-service")
 
     export_project = subparsers.add_parser("export-project", help="ProjectをExport")
     export_project.add_argument("--source-project-id", type=int, required=True)
@@ -152,16 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
         "wait-project-import", help="開始済みProject Importの完了を待機"
     )
     wait_project.add_argument("--destination-project-id", type=int, required=True)
-
-    smoke = subparsers.add_parser(
-        "smoke-group",
-        help="最小データ作成からGroup Import/比較まで実行（仕様19の手順1〜8）",
-    )
-    smoke.add_argument("--source-name", default="migration-source")
-    smoke.add_argument("--source-path", default="migration-source")
-    smoke.add_argument("--destination-name", default="migration-destination")
-    smoke.add_argument("--destination-path", default="migration-destination")
-    smoke.add_argument("--manifest", type=Path)
 
     report = subparsers.add_parser("report", help="ManifestからMarkdownレポートを生成")
     report.add_argument("--source-group-id", type=int)
@@ -198,46 +190,47 @@ def destination_client() -> GitLabClient:
 
 
 def _client_from_env(prefix: str) -> GitLabClient:
-    """PATまたはローカル検証用Password Grantからクライアントを作る。"""
-    url = os.getenv(f"{prefix}_GITLAB_URL", "").strip().rstrip("/")
-    token = os.getenv(f"{prefix}_GITLAB_TOKEN", "").strip()
-    if token:
-        return GitLabClient(GitLabConfig.from_env(prefix))
-    password = os.getenv(f"{prefix}_GITLAB_ROOT_PASSWORD", "").strip()
-    if not url or not password:
-        return GitLabClient(GitLabConfig.from_env(prefix))
-    ca_bundle_value = os.getenv(f"{prefix}_GITLAB_CA_BUNDLE", "").strip()
-    ca_bundle = Path(ca_bundle_value).expanduser() if ca_bundle_value else None
-    token = password_grant_token(
-        url,
-        password,
-        timeout_seconds=float(os.getenv("GITLAB_API_TIMEOUT", "30")),
-        ca_bundle=ca_bundle,
-    )
-    return GitLabClient(
-        GitLabConfig(
-            url=url,
-            token=token,
-            timeout_seconds=float(os.getenv("GITLAB_API_TIMEOUT", "30")),
-            max_retries=int(os.getenv("GITLAB_API_MAX_RETRIES", "3")),
-            auth_header="Authorization",
-            ca_bundle=ca_bundle,
-        )
-    )
+    """PATを使うGitLabクライアントを環境変数から作る。"""
+    return GitLabClient(GitLabConfig.from_env(prefix))
 
 
 def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     """解析済み引数に対応する処理を実行する。"""
     if args.command == "list-groups":
-        return source_client().list_all("/groups", params={"owned": "true", "order_by": "full_path"})
+        return source_client().list_all(
+            "/groups",
+            params={"owned": "true", "order_by": "full_path"},
+        )
+    if args.command == "list-destination-groups":
+        return destination_client().list_all(
+            "/groups",
+            params={"order_by": "full_path"},
+        )
     if args.command == "preflight":
-        return PreflightChecker(source_client(), destination_client()).check()
+        if args.required_free_gib < 0:
+            raise MigratorError("--required-free-gibは0以上で指定してください")
+        return PreflightChecker(
+            source_client(),
+            destination_client(),
+            required_free_bytes=int(args.required_free_gib * 1024**3),
+        ).check(
+            source_group_id=args.source_group_id,
+            destination_path=args.destination_path,
+            destination_parent_id=args.destination_parent_id,
+        )
     if args.command == "import-settings":
         settings = destination_client().get_json("/application/settings")
         return {
             key: value
             for key, value in settings.items()
-            if "import" in key or key in {"max_import_size", "max_export_size"}
+            if "import" in key
+            or key
+            in {
+                "max_import_size",
+                "max_export_size",
+                "max_decompressed_archive_size",
+                "decompress_archive_file_timeout",
+            }
         }
     if args.command == "enable-project-import":
         response = destination_client().put_form(
@@ -253,13 +246,6 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
     if args.command == "list-subgroups":
         return destination_client().list_all(
             f"/groups/{args.destination_group_id}/subgroups"
-        )
-    if args.command == "bootstrap-groups":
-        return MinimalGroupBootstrapper(source_client()).create(name=args.name, path=args.path)
-    if args.command == "bootstrap-tree":
-        return FullTreeBootstrapper(source_client()).create(
-            name=args.name,
-            path=args.path,
         )
     if args.command == "export-group":
         result = GroupExporter(
@@ -399,35 +385,6 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
         if args.output:
             ManifestStore(args.output).save(payload)
         return payload
-    if args.command == "bootstrap-project":
-        client = source_client()
-        namespace = client.get_json(f"/groups/{args.source_namespace_id}")
-        full_path = f"{namespace['full_path']}/{args.path}"
-        try:
-            client.get_json(f"/projects/{client.encode_id(full_path)}")
-        except GitLabApiError as exc:
-            if exc.status != 404:
-                raise
-        else:
-            raise ExistingGroupError(f"テスト用Projectが既に存在します: {full_path}")
-        project = client.post_form(
-            "/projects",
-            {
-                "name": args.name,
-                "path": args.path,
-                "namespace_id": args.source_namespace_id,
-                "initialize_with_readme": "true",
-                "description": "Group移行後のNamespace配置検証用Project",
-                "visibility": "private",
-            },
-            expected={201},
-        ).json()
-        if not isinstance(project, dict):
-            raise GitLabApiError("Project作成APIがオブジェクト以外を返しました")
-        return {
-            key: project.get(key)
-            for key in ("id", "name", "path", "path_with_namespace", "default_branch")
-        }
     if args.command == "export-project":
         return ProjectExporter(
             source_client(),
@@ -479,25 +436,6 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
             "import_status": project.get("import_status"),
             "import_error": project.get("import_error"),
         }
-    if args.command == "smoke-group":
-        source = source_client()
-        created = MinimalGroupBootstrapper(source).create(
-            name=args.source_name, path=args.source_path
-        )
-        source_group_id = int(created["root"]["id"])
-        manifest_path = args.manifest or DEFAULT_MANIFEST_DIR / f"group-{source_group_id}.json"
-        return GroupMigrator(
-            source,
-            destination_client(),
-            export_dir=DEFAULT_EXPORT_DIR,
-            manifest_path=manifest_path,
-            poll_interval_seconds=args.poll_interval,
-            timeout_seconds=args.timeout,
-        ).migrate(
-            source_group_id,
-            destination_name=args.destination_name,
-            destination_path=args.destination_path,
-        )
     if args.command == "report":
         if args.manifest is None and args.source_group_id is None:
             raise MigratorError("--manifestまたは--source-group-idを指定してください")

@@ -29,6 +29,156 @@ jobs:
       - name: Install package
         run: python -m pip install --disable-pip-version-check -e .
       - name: Compile
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests windows
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+      - name: Verify production CLI
+        run: |
+          gitlab-migrator --help > cli-help.txt
+          ! grep -Eq 'bootstrap-|smoke-group' cli-help.txt
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Build distributions
+        run: |
+          python -m pip install --disable-pip-version-check build
+          python -m build
+          python windows/package_windows_bundle.py --wheel dist/*.whl --output-dir dist
+          cd dist
+          sha256sum *.whl *.tar.gz *.zip > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Inspect wheel contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tarfile import open as open_tar
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          sdist = next(Path("dist").glob("*.tar.gz"))
+          windows_bundle = next(Path("dist").glob("*-windows-v*.zip"))
+          with ZipFile(wheel) as archive:
+              wheel_names = set(archive.namelist())
+          forbidden_wheel = {
+              "gitlab_migrator/auth.py",
+              "gitlab_migrator/bootstrap.py",
+          }
+          found_wheel = sorted(forbidden_wheel & wheel_names)
+          if found_wheel:
+              raise SystemExit(
+                  f"検証専用Moduleがwheelへ混入しています: {found_wheel}"
+              )
+
+          with open_tar(sdist, "r:gz") as archive:
+              sdist_names = set(archive.getnames())
+          forbidden_sdist = (
+              "/tests/",
+              "/compose.yaml",
+              "/src/gitlab_migrator/auth.py",
+              "/src/gitlab_migrator/bootstrap.py",
+          )
+          found_sdist = [
+              suffix
+              for suffix in forbidden_sdist
+              if any(suffix in name for name in sdist_names)
+          ]
+          if found_sdist:
+              raise SystemExit(
+                  f"検証・開発専用Fileがsdistへ混入しています: {found_sdist}"
+              )
+          required_sdist = (
+              "/SUPPORT.md",
+              "/docs/distributor-guide.md",
+              "/docs/user-quickstart.md",
+              "/docs/migration-runbook.md",
+          )
+          missing_sdist = [
+              suffix
+              for suffix in required_sdist
+              if not any(name.endswith(suffix) for name in sdist_names)
+          ]
+          if missing_sdist:
+              raise SystemExit(
+                  f"利用者向けDocumentがsdistにありません: {missing_sdist}"
+              )
+          with ZipFile(windows_bundle) as archive:
+              bundle_names = set(archive.namelist())
+          required_bundle = (
+              "/Start-GitLabMigration.cmd",
+              "/Configure-Distribution.cmd",
+              "/windows_bootstrap.py",
+              "/migration_wizard.py",
+              "/configure_distribution.py",
+              "/README-WINDOWS.txt",
+              "/README-DISTRIBUTOR.txt",
+              "/migration-settings.example.json",
+              "/MIGRATION-SCOPE.md",
+              "/SHA256SUMS",
+              ".whl",
+          )
+          missing_bundle = [
+              suffix
+              for suffix in required_bundle
+              if not any(name.endswith(suffix) for name in bundle_names)
+          ]
+          if missing_bundle:
+              raise SystemExit(
+                  f"Windows配布物に必須Fileがありません: {missing_bundle}"
+              )
+          if any(name.endswith("/migration-settings.json") for name in bundle_names):
+              raise SystemExit(
+                  "公開Windows配布物に実URL用migration-settings.jsonが混入しています"
+              )
+          forbidden_bundle = (
+              "/tests/",
+              "/compose.yaml",
+              "/auth.py",
+              "/bootstrap.py",
+          )
+          found_bundle = [
+              suffix
+              for suffix in forbidden_bundle
+              if any(suffix in name for name in bundle_names)
+          ]
+          if found_bundle:
+              raise SystemExit(
+                  f"Windows配布物に検証専用Fileが混入しています: {found_bundle}"
+              )
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitlab-group-migrator-distributions
+          path: dist/*
+
+  windows-bundle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build Windows bundle
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check build
+          python -m build --wheel
+          $wheel = (Get-ChildItem "dist\*.whl").FullName
+          python windows/package_windows_bundle.py --wheel $wheel --output-dir dist
+          $bundle = (Get-ChildItem "dist\*-windows-v*.zip").FullName
+          Expand-Archive -Path $bundle -DestinationPath extracted
+      - name: Verify Windows bootstrap and wizard
+        shell: pwsh
+        run: |
+          $bootstrap = (Get-ChildItem extracted -Recurse -Filter windows_bootstrap.py).FullName
+          $wizard = (Get-ChildItem extracted -Recurse -Filter migration_wizard.py).FullName
+          $configure = (Get-ChildItem extracted -Recurse -Filter configure_distribution.py).FullName
+          py -3 $bootstrap --verify-only
+          py -3 $wizard --help
+          py -3 $configure --help

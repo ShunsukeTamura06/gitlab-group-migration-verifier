@@ -12,6 +12,7 @@ from gitlab_migrator.errors import ArchiveValidationError
 from gitlab_migrator.group_exporter import GroupExporter
 from gitlab_migrator.manifest import ManifestStore
 from gitlab_migrator.tree_migrator import TreeBundleExporter, TreeBundleImporter
+from gitlab_migrator import __version__
 
 from tests.helpers import Clock, tar_gz_bytes
 
@@ -122,6 +123,7 @@ class TreeMigratorTest(unittest.TestCase):
                 monotonic=clock.monotonic,
             ).export(1)
             self.assertEqual("tree_export_finished", result["state"])
+            self.assertEqual(__version__, result["tool"]["version"])
             self.assertEqual(2, result["source"]["project_count"])
             self.assertEqual(2, len(result["projects"]))
             self.assertEqual(

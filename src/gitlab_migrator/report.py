@@ -36,6 +36,10 @@ def write_markdown_report(manifest: dict[str, Any], output: Path) -> None:
     lines = [
         "# GitLabグループ移行検証レポート",
         "",
+        (
+            "- Tool Version: "
+            f"{(manifest.get('tool') or {}).get('version', '記録なし')}"
+        ),
         f"- グループ直接Export / Import: {direct_result}",
         f"- サブグループ階層: {'完全一致' if not missing and not extra else '差異あり'}",
         f"- グループラベル: {'完全一致' if verification.get('labels_match') else '差異あり'}",

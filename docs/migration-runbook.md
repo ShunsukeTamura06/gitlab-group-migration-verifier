@@ -1,6 +1,8 @@
-# 社内GitLab移行Runbook
+# GitLab移行Runbook
 
 このRunbookは、Direct Transferを利用できない環境で、GitLab Group ExportとProject Exportを使った移行Pilotを安全に実施するための手順です。対象Versionは実機確認済みの15.3.3 EEから19.1.1 EEを基準にしています。
+
+このVersion間移行はGitLab公式のファイルImport互換範囲外です。実機確認済みであることを互換保証として扱わず、GroupごとにPilotと例外承認を行います。
 
 ## 1. 実施判断と責任分界
 
@@ -12,6 +14,7 @@
 - 許容停止時間、合否基準、切り戻し判断者
 - Exportアーカイブ、Manifest、ログの保存先と保持期間
 - このツールが未検証の機能と、手動補完する担当者
+- 公式互換範囲外であることと、Pilot結果に基づく例外承認
 
 このツールはSourceを削除せず、Destinationの既存Group / Projectも自動削除・上書きしません。切り戻しはSourceを正として利用再開し、Destination側の新規リソースは承認後にGitLab管理者が別作業で処理します。
 
@@ -28,23 +31,27 @@
 
 Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Exportで安全に復元されると想定しないでください。Secrets Manager側の再発行・再設定手順を別に用意します。
 
+ユーザーの貢献履歴を正しく対応させるため、[ユーザーマッピング手順](user-mapping.md)に従い、移行先ユーザーの存在、移行元Public Email、移行先の確認済みPrimary Emailを照合します。
+
 ## 3. 実行端末の準備
 
 暗号化された管理端末または作業用VMを使用し、作業ディレクトリへのアクセスを担当者へ限定します。
+
+Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.2.0.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
 
 ```bash
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
-make all
+python -m pip install ./gitlab_group_migrator-1.2.0-py3-none-any.whl
+gitlab-migrator --version
 ```
 
 Exportアーカイブは機密データとして扱います。ツールは生成ファイルを`0600`で保存しますが、ディスク、バックアップ、転送経路にも組織の暗号化基準を適用してください。
 
 ## 4. 認証と社内CA
 
-実環境ではPassword Grantを使いません。Sourceは対象GroupをExportできるOwner相当のToken、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin Tokenを、Secrets Managerから短時間だけ環境変数へ注入します。
+Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin相当のPersonal Access Tokenを使います。Windowsウィザードでは非表示入力欄へ貼り付け、ファイルへ保存しません。手動運用ではSecrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
@@ -62,7 +69,11 @@ Shell履歴、CIログ、チケットへTokenを残さないでください。�
 ## 5. 非破壊Preflight
 
 ```bash
-gitlab-migrator preflight | tee preflight.json
+gitlab-migrator preflight \
+  --source-group-id 123 \
+  --destination-path engineering \
+  --required-free-gib 50 \
+  | tee preflight.json
 ```
 
 次を確認します。
@@ -71,8 +82,13 @@ gitlab-migrator preflight | tee preflight.json
 - 両TokenでUser APIへ認証できる
 - Destinationの`gitlab_project` Import Sourceが有効
 - 作業ディレクトリへ書き込める
+- 指定した作業容量を確保できる
+- Source Groupへ到達できる
+- Destination Pathが既存Groupと競合しない
 - URLがHTTPSである
 - 実機検証済みVersionとの差異
+- GitLab公式のファイルImport互換範囲
+- 最大Import、Export、展開後Archive Size
 
 `status: failed`は作業中止、`status: warning`は移行責任者が内容を確認して継続可否を記録します。`enable-project-import`はDestination設定を変更するため、Preflightから自動実行しません。
 
@@ -98,6 +114,7 @@ gitlab-migrator --poll-interval 20 --timeout 7200 migrate-tree \
 - CI/CD Variable、Webhook、Runner、Registry
 
 Manifestの`verification_status: failed`、Missing / Extra、想定外のFull Pathが1件でもあれば本番へ進みません。
+Project Importが`finished`でも`failed_relations`が1件以上あれば部分失敗として扱い、本番へ進みません。
 
 ## 7. 本番移行
 
@@ -111,6 +128,8 @@ Manifestの`verification_status: failed`、Missing / Extra、想定外のFull Pa
 8. Ownerが受入確認を行う。
 9. DNS、案内、権限切替等は別の承認済み手順で実施する。
 10. Tokenを失効し、アーカイブを保持ポリシーに従って処理する。
+
+受入確認は[受入確認チェックリスト](acceptance-checklist.md)へ記録します。
 
 実行例:
 
@@ -131,6 +150,7 @@ gitlab-migrator report \
 
 - 同じコマンドを無条件で再実行しない。
 - Manifestの最後のState、作成済みDestination Group ID、Archive SHA-256を記録する。
+- `gitlab-migrator --version`、GitLab Version、発生時刻、Project Importの`correlation_id`と`failed_relations`を記録する。
 - DestinationにGroup / Projectが作成済みなら、ツールは次回実行を停止する。
 - 現Versionでは`--resume`が未実装のため、新しいDestination Pathで最初からやり直すか、管理者がManifestと実体を確認したうえで個別コマンドを使う。
 - Destinationリソースの削除は、このツール外の承認済み手順で行う。

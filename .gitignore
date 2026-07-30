@@ -4,8 +4,15 @@ __pycache__/
 .ruff_cache/
 .venv/
 *.egg-info/
+/build/
+/dist/
 .env
 .env.local
+migration-settings.json
+migration-settings.local.json
+internal-distribution/
+*-internal-v*.zip
+*-internal-v*.zip.sha256
 work/**
 !work/**/
 !work/**/.gitkeep
