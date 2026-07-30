@@ -534,7 +534,7 @@ def collect_environment(
         "移行元Access Token（api scope、Owner相当）: "
     ).strip()
     environment["DESTINATION_GITLAB_TOKEN"] = getpass.getpass(
-        "移行先Access Token（api scope、Admin相当）: "
+        "移行先Access Token（api scope、Group作成・Import権限）: "
     ).strip()
     if not environment["SOURCE_GITLAB_TOKEN"] or not environment["DESTINATION_GITLAB_TOKEN"]:
         raise WizardError("Access Tokenは空にできません")

@@ -62,7 +62,7 @@ class PreflightChecker:
             "destination", self.destination, checks, warnings
         )
         self._source_settings_check(checks, warnings)
-        self._destination_settings_check(checks)
+        self._destination_settings_check(checks, warnings)
         self._work_directory_check(checks)
         self._migration_target_checks(
             checks,
@@ -230,11 +230,6 @@ class PreflightChecker:
                     },
                 }
             )
-            if not user.get("is_admin"):
-                warnings.append(
-                    f"{role}のTokenがAdminとして確認できません。"
-                    "対象GroupのOwner権限とImport/Export権限を個別に確認してください"
-                )
         except GitLabApiError as exc:
             checks.append(
                 {
@@ -248,8 +243,12 @@ class PreflightChecker:
             warnings.append(f"{role}がHTTPSではありません: {client.config.url}")
         return version
 
-    def _destination_settings_check(self, checks: list[dict[str, Any]]) -> None:
-        """移行先でProject Import Sourceが有効か確認する。"""
+    def _destination_settings_check(
+        self,
+        checks: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> None:
+        """移行先でProject Import Sourceが有効か、確認可能な範囲で調べる。"""
         try:
             settings = self.destination.get_json("/application/settings")
             if not isinstance(settings, dict):
@@ -283,11 +282,25 @@ class PreflightChecker:
             checks.append(
                 {
                     "name": "destination.application_settings",
-                    "status": "failed",
-                    "detail": (
-                        f"{exc}。移行先Application Settingsを読むAdmin権限が必要です"
-                    ),
+                    "status": "skipped",
+                    "detail": {
+                        "reason": (
+                            "一般利用者のTokenではApplication Settingsを参照できないため、"
+                            "管理者設定の自動確認をスキップしました"
+                        ),
+                        "http_status": exc.status,
+                        "admin_confirmation": [
+                            "Project Import SourceのGitLab exportが有効",
+                            "Import上限が対象Archiveを受け入れ可能",
+                        ],
+                    },
                 }
+            )
+            warnings.append(
+                "移行先の管理者設定を自動確認できませんでした。"
+                "本番移行前にGitLab管理者へ、GitLab export Import Sourceが有効で、"
+                "Import上限が対象Archiveを受け入れられることを確認してください。"
+                "移行実行者に管理者Tokenを渡す必要はありません"
             )
 
     def _source_settings_check(

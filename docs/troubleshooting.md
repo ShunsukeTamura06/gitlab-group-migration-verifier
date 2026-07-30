@@ -24,6 +24,15 @@ gitlab-migrator --version
 
 ## 代表的な状態
 
+### `destination.application_settings`がHTTP 403
+
+Application SettingsはGitLabインスタンス管理者専用のAPIです。移行実行者のTokenに管理者権限を追加せず、GitLab管理者へ次の設定だけを確認してもらいます。
+
+- `gitlab_project` Import Sourceが有効
+- Import上限が対象Archiveを受け入れ可能
+
+v1.2.3以降ではこの確認を`skipped`として警告に留め、事前診断を失敗させません。管理者の確認結果と警告を移行責任者が確認した後、Windowsウィザードへ`CONTINUE`と入力して続行できます。
+
 ### `failed_relations`がある
 
 Project全体の`import_status`が`finished`でも部分的なRelation Import失敗です。成功として扱わず、Relation名、例外Class、例外Message、GitLab Server LogをGitLab管理者が確認します。

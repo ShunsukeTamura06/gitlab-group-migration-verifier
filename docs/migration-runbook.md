@@ -37,13 +37,13 @@ Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Export�
 
 暗号化された管理端末または作業用VMを使用し、作業ディレクトリへのアクセスを担当者へ限定します。
 
-Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.2.2.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
+Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.2.3.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
 
 ```bash
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./gitlab_group_migrator-1.2.2-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.3-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -51,7 +51,7 @@ Exportアーカイブは機密データとして扱います。ツールは生�
 
 ## 4. 認証と社内CA
 
-Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup / Project ImportとApplication Settingsを確認できるAdmin相当のPersonal Access Tokenを使います。Windowsウィザードでは非表示入力欄へ貼り付け、ファイルへ保存しません。手動運用ではSecrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
+Sourceは対象GroupをExportできるOwner相当のPersonal Access Token、DestinationはGroup作成とProject ImportができるPersonal Access Tokenを使います。どちらも`api` scopeが必要です。Destinationの既存親Groupへ配置する場合は、そのGroupでSubgroupを作成できる権限も必要です。移行実行者にGitLabインスタンス管理者権限は不要です。Windowsウィザードでは非表示入力欄へ貼り付け、ファイルへ保存しません。手動運用ではSecrets Managerから短時間だけ環境変数へ注入します。ユーザー名とパスワードによる認証には対応していません。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
@@ -80,7 +80,7 @@ gitlab-migrator preflight \
 
 - Source / DestinationのVersion APIへ接続できる
 - 両TokenでUser APIへ認証できる
-- Destinationの`gitlab_project` Import Sourceが有効
+- Destinationの`gitlab_project` Import Sourceが有効（管理者APIを参照できない場合は警告としてスキップ）
 - 作業ディレクトリへ書き込める
 - 指定した作業容量を確保できる
 - Source Groupへ到達できる
@@ -90,7 +90,7 @@ gitlab-migrator preflight \
 - GitLab公式のファイルImport互換範囲
 - 最大Import、Export、展開後Archive Size
 
-`status: failed`は作業中止、`status: warning`は移行責任者が内容を確認して継続可否を記録します。`enable-project-import`はDestination設定を変更するため、Preflightから自動実行しません。
+`status: failed`は作業中止、`status: warning`は移行責任者が内容を確認して継続可否を記録します。Application Settingsの確認がスキップされた場合、GitLab管理者へ`gitlab_project` Import Sourceが有効で、Import上限が対象Archiveを受け入れ可能か確認します。管理者Tokenを移行実行者へ渡す必要はありません。`enable-project-import`はDestination設定を変更するため、Preflightから自動実行しません。
 
 ## 6. Pilot
 

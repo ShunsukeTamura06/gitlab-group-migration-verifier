@@ -4,7 +4,7 @@
 
 ## 公開Releaseから取得する
 
-1. GitHub Releaseから`gitlab-group-migrator-windows-v1.2.2.zip`をDownloadします。
+1. GitHub Releaseから`gitlab-group-migrator-windows-v1.2.3.zip`をDownloadします。
 2. 公開Releaseの`SHA256SUMS`でZIPを検証します。
 3. ZIPを右クリックし、「すべて展開」を選びます。
 
@@ -27,8 +27,12 @@
 - 社内専用ZIPをGitHubや公開ArtifactへUploadしない
 - ZIPとChecksumを承認済みの別経路で利用者へ渡す
 - Access TokenをZIPへ追加しない
+- GitLab管理者へ`gitlab_project` Import Sourceが有効であることを確認する
+- GitLab管理者へImport上限が想定Archive Sizeを受け入れ可能か確認する
 - `MIGRATION-SCOPE.md`が同梱されている
 - Pilot用移行申請、バックアップ、切り戻し、責任者を準備している
+
+管理者からは設定の確認結果だけを受け取り、管理者Tokenを利用者や配布担当者へ渡してもらう必要はありません。ユーザー関連付けの完全保持が必要な場合は、[ユーザーマッピング](user-mapping.md)に従って、管理者がImportを実施する運用を別途調整します。
 
 この組織では追加CAファイルを使用しないため、生成設定の`prompt_for_ca_bundle`は`false`です。TLS接続に失敗した場合も証明書検証を無効化せず、社内IT部門へ確認してください。
 
