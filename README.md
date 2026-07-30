@@ -35,16 +35,27 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ## インストール
 
-### Windows（推奨）
+### Windows社内配布（推奨）
 
-1. [v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)から`gitlab-group-migrator-windows-v1.2.0.zip`をDownloadします。
-2. ZIPを右クリックして「すべて展開」を選びます。ZIP内から直接起動しないでください。
-3. 展開先の`Start-GitLabMigration.cmd`をダブルクリックします。
-4. 画面の質問に答え、最初は「Pilot移行」を選びます。
+配布担当者:
 
-初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。Access Tokenは画面に表示せず、ファイルにも保存しません。利用者によるPowerShell、環境変数、Group ID、`pip`、CLI Commandの操作は不要です。
+1. [v1.2.0 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.0)から公開Windows ZIPを取得します。
+2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
+3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
+4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
 
-Pythonがない場合だけ、[Python公式Windows版](https://www.python.org/downloads/windows/)からPython 3.11以上をInstallし、Python Launcherを有効にしてください。
+実URLはGitHub、Source Code、Command Line引数、Shell履歴へ保存しません。Access Tokenも社内専用ZIPへ含めません。詳細は[Windows社内配布ガイド](docs/distributor-guide.md)を参照してください。
+
+利用者:
+
+1. 社内配布担当者から受領したZIPを「すべて展開」します。
+2. `MIGRATION-SCOPE.md`で移行対象・非対象を確認します。
+3. `Start-GitLabMigration.cmd`をダブルクリックします。
+4. Access Tokenを非表示入力し、Groupと実行Modeを番号で選びます。
+
+利用者へGitLab URL、社内CA、必要容量は質問しません。質問された場合は公開汎用ZIPを誤って使用しているため、操作を中止します。初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。
+
+配布担当者と利用者のPCにPythonがない場合だけ、[Python公式Windows版](https://www.python.org/downloads/windows/)からPython 3.11以上をInstallし、Python Launcherを有効にしてください。
 
 ### macOS / Linux・上級者向け
 
@@ -73,7 +84,7 @@ python -m pip install \
 
 ## 接続設定
 
-Windows簡単スタートでは、画面の非表示入力欄へ移行元・移行先のTokenを貼り付けます。以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
+Windows社内専用ZIPではGitLab URLが配布担当者により設定済みで、利用者は画面の非表示入力欄へ移行元・移行先のTokenだけを貼り付けます。以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
@@ -152,11 +163,12 @@ Membersの全Access Level、Board、Badge、Group Wiki、Epic、Iteration、Vari
 
 実施前に次の順で確認してください。
 
-1. [利用者Quickstart](docs/user-quickstart.md)
-2. [移行申請テンプレート](docs/migration-request-template.md)
-3. [ユーザーマッピング](docs/user-mapping.md)
-4. [移行Runbook](docs/migration-runbook.md)
-5. [受入確認チェックリスト](docs/acceptance-checklist.md)
+1. [Windows社内配布ガイド](docs/distributor-guide.md)
+2. [利用者Quickstart](docs/user-quickstart.md)
+3. [移行申請テンプレート](docs/migration-request-template.md)
+4. [ユーザーマッピング](docs/user-mapping.md)
+5. [移行Runbook](docs/migration-runbook.md)
+6. [受入確認チェックリスト](docs/acceptance-checklist.md)
 
 詳細な対応範囲は[対応範囲](docs/compatibility.md)、失敗時は[トラブルシューティング](docs/troubleshooting.md)を参照してください。Exportアーカイブ、Manifest、レポートの取扱いは[セキュリティ方針](SECURITY.md)、問い合わせ方法は[SUPPORT.md](SUPPORT.md)に従ってください。
 

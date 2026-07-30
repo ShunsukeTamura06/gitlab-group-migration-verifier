@@ -5,6 +5,7 @@
 Exportアーカイブ、Manifest、レポートには社内の機密情報や個人情報が含まれる可能性があります。ツールは生成ファイルを所有者のみ読み書きできる`0600`で保存しますが、作業端末、バックアップ、ログ、成果物の保管先にも組織の情報分類と保持期間を適用してください。
 
 - Tokenをコマンドライン引数、Git管理対象ファイル、チケットへ記録しない
+- 実際のGitLab URLをSource Code、Git履歴、公開Issue、Pull Requestへ記録しない
 - Windowsウィザードでは非表示入力を使い、CLIではSecrets Manager等から環境変数へ短時間だけ注入する
 - 作業ディレクトリを暗号化されたローカルディスクに置く
 - 移行完了後、承認された保持期間に従ってアーカイブを安全に消去する
@@ -13,6 +14,12 @@ Exportアーカイブ、Manifest、レポートには社内の機密情報や個
 ## 認証とTLS
 
 認証には用途を限定したPersonal Access Tokenを使ってください。ユーザー名とパスワードによる認証は提供していません。社内CAは`SOURCE_GITLAB_CA_BUNDLE`と`DESTINATION_GITLAB_CA_BUNDLE`で指定できます。TLS検証を無効化する機能は提供していません。
+
+## Windows社内配布設定
+
+公開Windows ZIPは`.invalid`の例だけを含み、実際のGitLab URLを含みません。配布担当者がローカルで生成する社内専用ZIP内の`migration-settings.json`だけに実URLを保存します。生成した社内専用ZIPは機密情報として扱い、GitHubや公開ArtifactへUploadしないでください。
+
+`migration-settings.json`はURL、必要容量、CA質問設定以外の項目を拒否します。Access Token、Password、Secretを追加しないでください。Access Tokenは利用者が実行時に非表示入力し、ファイルへ保存しません。
 
 ## 脆弱性の報告
 

@@ -94,6 +94,7 @@ jobs:
               )
           required_sdist = (
               "/SUPPORT.md",
+              "/docs/distributor-guide.md",
               "/docs/user-quickstart.md",
               "/docs/migration-runbook.md",
           )
@@ -110,9 +111,13 @@ jobs:
               bundle_names = set(archive.namelist())
           required_bundle = (
               "/Start-GitLabMigration.cmd",
+              "/Configure-Distribution.cmd",
               "/windows_bootstrap.py",
               "/migration_wizard.py",
+              "/configure_distribution.py",
               "/README-WINDOWS.txt",
+              "/README-DISTRIBUTOR.txt",
+              "/migration-settings.example.json",
               "/MIGRATION-SCOPE.md",
               "/SHA256SUMS",
               ".whl",
@@ -125,6 +130,10 @@ jobs:
           if missing_bundle:
               raise SystemExit(
                   f"Windows配布物に必須Fileがありません: {missing_bundle}"
+              )
+          if any(name.endswith("/migration-settings.json") for name in bundle_names):
+              raise SystemExit(
+                  "公開Windows配布物に実URL用migration-settings.jsonが混入しています"
               )
           forbidden_bundle = (
               "/tests/",
@@ -169,5 +178,7 @@ jobs:
         run: |
           $bootstrap = (Get-ChildItem extracted -Recurse -Filter windows_bootstrap.py).FullName
           $wizard = (Get-ChildItem extracted -Recurse -Filter migration_wizard.py).FullName
+          $configure = (Get-ChildItem extracted -Recurse -Filter configure_distribution.py).FullName
           py -3 $bootstrap --verify-only
           py -3 $wizard --help
+          py -3 $configure --help

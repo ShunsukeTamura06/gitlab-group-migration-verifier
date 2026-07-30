@@ -13,9 +13,17 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 InputFunction = Callable[[str], str]
 SECRET_KEYS = ("SOURCE_GITLAB_TOKEN", "DESTINATION_GITLAB_TOKEN")
+SETTINGS_FILENAME = "migration-settings.json"
+ALLOWED_SETTINGS_KEYS = {
+    "source_gitlab_url",
+    "destination_gitlab_url",
+    "required_free_gib",
+    "prompt_for_ca_bundle",
+}
 
 
 class WizardError(RuntimeError):
@@ -161,12 +169,79 @@ def validate_url(value: str) -> str:
     Raises:
         WizardError: HTTPS URLでもlocalhost URLでもない場合。
     """
-    normalized = value.rstrip("/")
-    if normalized.startswith("https://"):
-        return normalized
-    if normalized.startswith(("http://localhost", "http://127.0.0.1")):
-        return normalized
-    raise WizardError("GitLab URLはhttps://から始めてください")
+    normalized = value.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    is_local_http = (
+        parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1"}
+    )
+    if parsed.scheme != "https" and not is_local_http:
+        raise WizardError("GitLab URLはhttps://から始めてください")
+    if not parsed.netloc:
+        raise WizardError("GitLab URLはHostを含む絶対URLで指定してください")
+    if parsed.username or parsed.password:
+        raise WizardError("GitLab URLにユーザー名やPasswordを含めないでください")
+    if parsed.query or parsed.fragment:
+        raise WizardError("GitLab URLにQueryまたはFragmentを含めないでください")
+    if parsed.path.rstrip("/").endswith("/api/v4"):
+        raise WizardError("GitLab URLには/api/v4を含めないでください")
+    return normalized
+
+
+def load_distribution_settings(bundle_directory: Path) -> dict[str, object] | None:
+    """配布担当者が設定した接続先を読み込む。
+
+    Args:
+        bundle_directory: 展開済み社内配布Directory。
+
+    Returns:
+        検証済み設定。設定ファイルがない場合はNone。
+
+    Raises:
+        WizardError: 設定形式、URL、項目が不正な場合。
+    """
+    settings_path = bundle_directory / SETTINGS_FILENAME
+    if not settings_path.exists():
+        return None
+    try:
+        payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise WizardError(
+            f"{SETTINGS_FILENAME}を読み取れません。配布担当者へ連絡してください"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise WizardError(
+            f"{SETTINGS_FILENAME}のルートはJSON Objectである必要があります"
+        )
+    unexpected = sorted(set(payload) - ALLOWED_SETTINGS_KEYS)
+    if unexpected:
+        raise WizardError(
+            f"{SETTINGS_FILENAME}に許可されていない項目があります: {unexpected}"
+        )
+    source_url = payload.get("source_gitlab_url")
+    destination_url = payload.get("destination_gitlab_url")
+    required_free_gib = payload.get("required_free_gib")
+    prompt_for_ca_bundle = payload.get("prompt_for_ca_bundle")
+    if not isinstance(source_url, str) or not isinstance(destination_url, str):
+        raise WizardError(f"{SETTINGS_FILENAME}にGitLab URLがありません")
+    if (
+        not isinstance(required_free_gib, int)
+        or isinstance(required_free_gib, bool)
+        or required_free_gib < 0
+    ):
+        raise WizardError(
+            f"{SETTINGS_FILENAME}のrequired_free_gibは0以上の整数にしてください"
+        )
+    if not isinstance(prompt_for_ca_bundle, bool):
+        raise WizardError(
+            f"{SETTINGS_FILENAME}のprompt_for_ca_bundleはBooleanにしてください"
+        )
+    return {
+        "source_gitlab_url": validate_url(source_url),
+        "destination_gitlab_url": validate_url(destination_url),
+        "required_free_gib": required_free_gib,
+        "prompt_for_ca_bundle": prompt_for_ca_bundle,
+    }
 
 
 def parse_groups(output: str) -> list[dict[str, Any]]:
@@ -428,20 +503,32 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
-def collect_environment(*, input_function: InputFunction = input) -> dict[str, str]:
+def collect_environment(
+    *,
+    settings: Mapping[str, object] | None = None,
+    input_function: InputFunction = input,
+) -> dict[str, str]:
     """接続情報とTokenを対話入力から作る。
 
     Args:
+        settings: 配布担当者が設定した接続先。未設定時は対話入力する。
         input_function: 通常項目の入力関数。
 
     Returns:
         子Process専用の環境変数。
     """
     environment = os.environ.copy()
-    source_url = prompt_required("移行元GitLab URL", input_function=input_function)
-    destination_url = prompt_required("移行先GitLab URL", input_function=input_function)
-    environment["SOURCE_GITLAB_URL"] = validate_url(source_url)
-    environment["DESTINATION_GITLAB_URL"] = validate_url(destination_url)
+    if settings is None:
+        source_url = prompt_required("移行元GitLab URL", input_function=input_function)
+        destination_url = prompt_required("移行先GitLab URL", input_function=input_function)
+        environment["SOURCE_GITLAB_URL"] = validate_url(source_url)
+        environment["DESTINATION_GITLAB_URL"] = validate_url(destination_url)
+    else:
+        environment["SOURCE_GITLAB_URL"] = str(settings["source_gitlab_url"])
+        environment["DESTINATION_GITLAB_URL"] = str(
+            settings["destination_gitlab_url"]
+        )
+        print("GitLab URLは配布担当者が設定済みです。画面やログへ表示しません。")
     print("\nTokenは画面に表示されず、ファイルにも保存されません。")
     environment["SOURCE_GITLAB_TOKEN"] = getpass.getpass(
         "移行元Access Token（api scope、Owner相当）: "
@@ -451,8 +538,21 @@ def collect_environment(*, input_function: InputFunction = input) -> dict[str, s
     ).strip()
     if not environment["SOURCE_GITLAB_TOKEN"] or not environment["DESTINATION_GITLAB_TOKEN"]:
         raise WizardError("Access Tokenは空にできません")
-    source_ca = prompt_optional("移行元の社内CAファイル", input_function=input_function)
-    destination_ca = prompt_optional("移行先の社内CAファイル", input_function=input_function)
+    prompt_for_ca_bundle = (
+        settings is None or bool(settings.get("prompt_for_ca_bundle"))
+    )
+    if prompt_for_ca_bundle:
+        source_ca = prompt_optional(
+            "移行元の社内CAファイル",
+            input_function=input_function,
+        )
+        destination_ca = prompt_optional(
+            "移行先の社内CAファイル",
+            input_function=input_function,
+        )
+    else:
+        source_ca = None
+        destination_ca = None
     if source_ca:
         environment["SOURCE_GITLAB_CA_BUNDLE"] = str(Path(source_ca).expanduser().resolve())
     else:
@@ -476,7 +576,11 @@ def execute_wizard(*, input_function: InputFunction = input) -> int:
         Process終了Code。
     """
     bundle_directory = Path(__file__).resolve().parent
-    environment = collect_environment(input_function=input_function)
+    settings = load_distribution_settings(bundle_directory)
+    environment = collect_environment(
+        settings=settings,
+        input_function=input_function,
+    )
     print("\n移行元からGroup一覧を取得しています...")
     group_process = run_cli(
         ["list-groups"],
@@ -509,12 +613,15 @@ def execute_wizard(*, input_function: InputFunction = input) -> int:
         bundle_directory=bundle_directory,
         input_function=input_function,
     )
-    required_free_gib = prompt_integer(
-        "必要な空き容量 GiB",
-        default=50,
-        minimum=0,
-        input_function=input_function,
-    )
+    if settings is None:
+        required_free_gib = prompt_integer(
+            "必要な空き容量 GiB",
+            default=50,
+            minimum=0,
+            input_function=input_function,
+        )
+    else:
+        required_free_gib = int(settings["required_free_gib"])
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     artifact_name = safe_path_component(destination_path)
     preflight_path = (

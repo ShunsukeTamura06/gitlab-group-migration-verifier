@@ -3,7 +3,7 @@ include README.md
 include SECURITY.md
 include SUPPORT.md
 recursive-include docs *.md
-recursive-include windows *.cmd *.py *.txt
+recursive-include windows *.cmd *.json *.py *.txt
 prune tests
 global-exclude __pycache__
 global-exclude *.py[cod]

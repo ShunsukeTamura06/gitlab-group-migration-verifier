@@ -6,11 +6,11 @@
 
 ### 1. 受領物を確認する
 
-- `gitlab-group-migrator-windows-v1.2.0.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.0-*.zip`
+- 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
 - Source / Destinationの短期Personal Access Token
-- 社内CA Bundle（組織から指定された場合のみ）
 - Export、Manifest、レポートの承認済み保存先
 
 Tokenに必要な権限は、移行元が`api` scopeと対象GroupのOwner相当、移行先が`api` scopeとAdmin相当です。Tokenをチャット、チケット、メールで受け渡さないでください。
@@ -39,12 +39,12 @@ ZIPに同梱された`MIGRATION-SCOPE.md`を開き、次を移行責任者と確
 
 次の順に入力します。
 
-1. 移行元・移行先GitLabのURL
-2. 移行元・移行先Access Token
-3. 社内CAファイル（組織から渡された場合のみ）
-4. 画面に表示された移行元Groupの番号
-5. 「Pilot移行」「本番移行」「事前診断だけ」のいずれか
-6. 移行先のGroup名とPath
+1. 移行元・移行先Access Token
+2. 画面に表示された移行元Groupの番号
+3. 「Pilot移行」「本番移行」「事前診断だけ」のいずれか
+4. 移行先のGroup名とPath
+
+GitLab URL、社内CA、必要容量は配布担当者が設定済みのため質問されません。URLを質問された場合は公開汎用ZIPを使用しているため、操作を中止して配布担当者へ連絡してください。
 
 Token入力中は文字も`*`も表示されませんが、入力されています。貼り付けてEnterを押してください。Tokenはファイルへ保存されません。
 

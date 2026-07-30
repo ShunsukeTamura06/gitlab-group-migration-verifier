@@ -13,9 +13,13 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 REQUIRED_FILES = (
     "Start-GitLabMigration.cmd",
+    "Configure-Distribution.cmd",
     "windows_bootstrap.py",
     "migration_wizard.py",
+    "configure_distribution.py",
     "README-WINDOWS.txt",
+    "README-DISTRIBUTOR.txt",
+    "migration-settings.example.json",
 )
 REQUIRED_DOCUMENTS = {
     "MIGRATION-SCOPE.md": Path(__file__).resolve().parent.parent

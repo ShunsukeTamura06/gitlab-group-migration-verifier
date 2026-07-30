@@ -13,7 +13,12 @@ from pathlib import Path
 from unittest.mock import patch
 from zipfile import ZipFile
 
-from windows import migration_wizard, package_windows_bundle, windows_bootstrap
+from windows import (
+    configure_distribution,
+    migration_wizard,
+    package_windows_bundle,
+    windows_bootstrap,
+)
 
 
 class WindowsBundleTest(unittest.TestCase):
@@ -32,12 +37,30 @@ class WindowsBundleTest(unittest.TestCase):
                 names = archive.namelist()
                 checksum_name = next(name for name in names if name.endswith("/SHA256SUMS"))
                 checksum = archive.read(checksum_name).decode("utf-8")
+                example_name = next(
+                    name
+                    for name in names
+                    if name.endswith("/migration-settings.example.json")
+                )
+                example = json.loads(archive.read(example_name))
             self.assertTrue(any(name.endswith("/Start-GitLabMigration.cmd") for name in names))
+            self.assertTrue(any(name.endswith("/Configure-Distribution.cmd") for name in names))
             self.assertTrue(any(name.endswith("/migration_wizard.py") for name in names))
+            self.assertTrue(any(name.endswith("/configure_distribution.py") for name in names))
             self.assertTrue(any(name.endswith("/MIGRATION-SCOPE.md") for name in names))
+            self.assertTrue(
+                any(name.endswith("/migration-settings.example.json") for name in names)
+            )
             self.assertTrue(any(name.endswith(f"/{wheel.name}") for name in names))
             self.assertIn(windows_bootstrap.sha256(wheel), checksum)
             self.assertFalse(any("/tests/" in name for name in names))
+            self.assertFalse(any(name.endswith("/migration-settings.json") for name in names))
+            self.assertTrue(
+                str(example["source_gitlab_url"]).endswith(".invalid")
+            )
+            self.assertTrue(
+                str(example["destination_gitlab_url"]).endswith(".invalid")
+            )
 
     def test_bootstrap_rejects_tampered_wheel(self) -> None:
         """同梱Wheelが変更されていたら起動前に拒否する。"""
@@ -55,6 +78,70 @@ class WindowsBundleTest(unittest.TestCase):
 
             with self.assertRaisesRegex(windows_bootstrap.BootstrapError, "一致しません"):
                 windows_bootstrap.verify_wheel(root)
+
+    def test_internal_bundle_contains_urls_only_in_runtime_settings(self) -> None:
+        """実URL設定を公開用ToolやTokenと混在させず社内ZIPへ入れる。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for filename in configure_distribution.INTERNAL_RUNTIME_FILES:
+                (root / filename).write_text(f"dummy {filename}\n", encoding="utf-8")
+            wheel = root / "gitlab_group_migrator-1.2.0-py3-none-any.whl"
+            wheel.write_bytes(b"wheel-content")
+            (root / "SHA256SUMS").write_text(
+                f"{windows_bootstrap.sha256(wheel)}  {wheel.name}\n",
+                encoding="utf-8",
+            )
+            settings = configure_distribution.build_settings(
+                "https://source.example.invalid",
+                "https://destination.example.invalid",
+                50,
+            )
+
+            bundle, checksum = configure_distribution.create_internal_bundle(
+                root,
+                root / "internal-distribution",
+                settings,
+            )
+
+            with ZipFile(bundle) as archive:
+                names = archive.namelist()
+                settings_name = next(
+                    name for name in names if name.endswith("/migration-settings.json")
+                )
+                stored_settings = json.loads(archive.read(settings_name))
+            self.assertEqual(
+                "https://source.example.invalid",
+                stored_settings["source_gitlab_url"],
+            )
+            self.assertNotIn("token", json.dumps(stored_settings).lower())
+            self.assertFalse(
+                any(name.endswith("/Configure-Distribution.cmd") for name in names)
+            )
+            self.assertFalse(
+                any(name.endswith("/configure_distribution.py") for name in names)
+            )
+            self.assertIn(windows_bootstrap.sha256(bundle), checksum.read_text())
+
+    def test_internal_bundle_rejects_token_setting(self) -> None:
+        """社内ZIP生成時にもToken項目を拒否する。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = {
+                "source_gitlab_url": "https://source.example.invalid",
+                "destination_gitlab_url": "https://destination.example.invalid",
+                "required_free_gib": 50,
+                "prompt_for_ca_bundle": False,
+                "source_gitlab_token": "must-not-be-stored",
+            }
+
+            with self.assertRaisesRegex(
+                configure_distribution.DistributionConfigurationError,
+                "許可されていない",
+            ):
+                configure_distribution.create_internal_bundle(
+                    Path(temporary),
+                    Path(temporary) / "output",
+                    settings,
+                )
 
 
 class MigrationWizardTest(unittest.TestCase):
@@ -97,6 +184,84 @@ class MigrationWizardTest(unittest.TestCase):
         self.assertEqual("source-secret", environment["SOURCE_GITLAB_TOKEN"])
         self.assertEqual("destination-secret", environment["DESTINATION_GITLAB_TOKEN"])
         self.assertEqual(2, hidden_input.call_count)
+
+    def test_preconfigured_urls_skip_url_and_ca_prompts(self) -> None:
+        """社内配布設定があれば利用者へURLとCAを質問しない。"""
+        settings = {
+            "source_gitlab_url": "https://source.example.invalid",
+            "destination_gitlab_url": "https://destination.example.invalid",
+            "required_free_gib": 50,
+            "prompt_for_ca_bundle": False,
+        }
+
+        def unexpected_input(_: str) -> str:
+            """通常入力が呼ばれたらTestを失敗させる。"""
+            self.fail("URLまたはCAの入力を要求しました")
+
+        with patch.object(
+            getpass,
+            "getpass",
+            side_effect=["source-secret", "destination-secret"],
+        ):
+            environment = migration_wizard.collect_environment(
+                settings=settings,
+                input_function=unexpected_input,
+            )
+
+        self.assertEqual(
+            "https://source.example.invalid",
+            environment["SOURCE_GITLAB_URL"],
+        )
+        self.assertEqual(
+            "https://destination.example.invalid",
+            environment["DESTINATION_GITLAB_URL"],
+        )
+        self.assertNotIn("SOURCE_GITLAB_CA_BUNDLE", environment)
+        self.assertNotIn("DESTINATION_GITLAB_CA_BUNDLE", environment)
+
+    def test_distribution_settings_reject_secret_fields(self) -> None:
+        """配布設定へToken等の許可外項目を保存させない。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / migration_wizard.SETTINGS_FILENAME).write_text(
+                json.dumps(
+                    {
+                        "source_gitlab_url": "https://source.example.invalid",
+                        "destination_gitlab_url": "https://destination.example.invalid",
+                        "required_free_gib": 50,
+                        "prompt_for_ca_bundle": False,
+                        "source_gitlab_token": "must-not-be-stored",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(migration_wizard.WizardError, "許可されていない"):
+                migration_wizard.load_distribution_settings(root)
+
+    def test_distribution_settings_are_loaded_without_logging_urls(self) -> None:
+        """社内配布設定を検証し、読み込み時にURLを表示しない。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_url = "https://source.example.invalid"
+            (root / migration_wizard.SETTINGS_FILENAME).write_text(
+                json.dumps(
+                    {
+                        "source_gitlab_url": source_url,
+                        "destination_gitlab_url": "https://destination.example.invalid",
+                        "required_free_gib": 50,
+                        "prompt_for_ca_bundle": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                settings = migration_wizard.load_distribution_settings(root)
+
+        self.assertEqual(source_url, settings["source_gitlab_url"])
+        self.assertNotIn(source_url, output.getvalue())
 
     def test_destination_parent_is_selected_without_group_id_input(self) -> None:
         """移行先親Groupも一覧の番号から選択できる。"""
@@ -193,6 +358,17 @@ class MigrationWizardTest(unittest.TestCase):
         """社内GitLab接続でTLS検証を省略させない。"""
         with self.assertRaisesRegex(migration_wizard.WizardError, "https"):
             migration_wizard.validate_url("http://gitlab.internal.example")
+
+    def test_url_with_credentials_or_api_path_is_rejected(self) -> None:
+        """URLへPasswordやAPI Pathを埋め込ませない。"""
+        invalid_urls = (
+            "https://user:password@gitlab.example.invalid",
+            "https://gitlab.example.invalid/api/v4",
+        )
+
+        for url in invalid_urls:
+            with self.subTest(url=url), self.assertRaises(migration_wizard.WizardError):
+                migration_wizard.validate_url(url)
 
     def test_long_running_migration_shows_heartbeat(self) -> None:
         """長時間処理中に利用者へ継続中であることを知らせる。"""

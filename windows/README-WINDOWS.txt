@@ -10,6 +10,12 @@ GitLab Group Migrator - Windows かんたんスタート
 - 移行先のAccess Token（api scope、Admin相当）
 - 組織から指定された移行申請、バックアップ、承認
 
+配布物の確認
+------------
+このZIPは社内配布担当者から受領してください。
+GitLab URL、社内CA、必要容量は設定済みなので、利用者には質問されません。
+URLを質問された場合は公開汎用ZIPです。操作を中止して配布担当者へ連絡してください。
+
 最初に確認すること
 ------------------
 同梱の MIGRATION-SCOPE.md を読み、移行対象、自動確認対象、手動確認対象、
@@ -21,8 +27,9 @@ GitLab Group Migrator - Windows かんたんスタート
 1. ZIP全体を右クリックし、「すべて展開」を選びます。
 2. MIGRATION-SCOPE.md の内容を確認します。
 3. 展開したフォルダーの「Start-GitLabMigration.cmd」をダブルクリックします。
-4. 画面の質問に答えます。最初は「Pilot移行」を選んでください。
-5. 完了後、work\reports に作成されたレポートを責任者へ渡します。
+4. Access Tokenを非表示入力し、画面の質問に答えます。
+5. 最初は「Pilot移行」を選んでください。
+6. 完了後、work\reports に作成されたレポートを責任者へ渡します。
 
 Tokenについて
 -------------
