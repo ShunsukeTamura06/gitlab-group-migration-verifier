@@ -7,7 +7,7 @@ GitLab Group Migrator - Windows かんたんスタート
 - Python 3.11以上
 - 移行元と移行先のGitLabへ接続できるネットワーク
 - 移行元のAccess Token（api scope、対象GroupのOwner相当）
-- 移行先のAccess Token（api scope、Admin相当）
+- 移行先のAccess Token（api scope、Group作成・Import権限）
 - 組織から指定された移行申請、バックアップ、承認
 
 配布物の確認
@@ -35,6 +35,8 @@ Tokenについて
 -------------
 Tokenは入力時に画面へ表示されず、ファイルにも保存されません。
 Tokenをチャット、チケット、メール、スクリーンショットへ載せないでください。
+移行実行者にGitLabインスタンス管理者権限は不要です。
+既存の親Groupへ配置する場合は、そのGroupで新しいSubgroupを作成できる権限が必要です。
 
 止めるべき場合
 --------------

@@ -21,6 +21,7 @@ class PreflightClient:
         is_admin: bool = True,
         import_sources: list[str] | None = None,
         groups: dict[str, dict[str, Any]] | None = None,
+        application_settings_error: GitLabApiError | None = None,
     ) -> None:
         """接続情報と応答値を保持する。"""
         self.config = GitLabConfig(url, "token")
@@ -28,6 +29,7 @@ class PreflightClient:
         self.is_admin = is_admin
         self.import_sources = import_sources or []
         self.groups = groups or {}
+        self.application_settings_error = application_settings_error
 
     @staticmethod
     def encode_id(value: object) -> str:
@@ -41,6 +43,8 @@ class PreflightClient:
         if path == "/user":
             return {"username": "migration-admin", "is_admin": self.is_admin}
         if path == "/application/settings":
+            if self.application_settings_error is not None:
+                raise self.application_settings_error
             return {
                 "import_sources": self.import_sources,
                 "max_import_size": 5120,
@@ -102,7 +106,7 @@ class PreflightCheckerTest(unittest.TestCase):
         self.assertIn("destination.gitlab_project_import", failed_names)
 
     def test_warns_for_non_admin_and_unvalidated_version(self) -> None:
-        """権限不足の可能性とVersion差異を警告する。"""
+        """一般利用者TokenでもAdmin権限不足だけでは警告しない。"""
         result = PreflightChecker(
             PreflightClient(  # type: ignore[arg-type]
                 "https://source.example",
@@ -116,7 +120,39 @@ class PreflightCheckerTest(unittest.TestCase):
             ),
         ).check()
         self.assertEqual("warning", result["status"])
-        self.assertGreaterEqual(len(result["warnings"]), 2)
+        self.assertFalse(
+            any("Adminとして確認できません" in warning for warning in result["warnings"])
+        )
+
+    def test_skips_destination_application_settings_for_non_admin(self) -> None:
+        """管理者専用設定の403は警告に留め、移行を妨げない。"""
+        result = PreflightChecker(
+            PreflightClient(  # type: ignore[arg-type]
+                "https://source.example",
+                "19.1.1-ee",
+            ),
+            PreflightClient(  # type: ignore[arg-type]
+                "https://destination.example",
+                "19.1.1-ee",
+                is_admin=False,
+                application_settings_error=GitLabApiError(
+                    "GitLab API HTTP 403",
+                    status=403,
+                ),
+            ),
+        ).check()
+
+        self.assertEqual("warning", result["status"])
+        settings_check = next(
+            item
+            for item in result["checks"]
+            if item["name"] == "destination.application_settings"
+        )
+        self.assertEqual("skipped", settings_check["status"])
+        self.assertEqual(403, settings_check["detail"]["http_status"])
+        self.assertTrue(
+            any("管理者Tokenを渡す必要はありません" in warning for warning in result["warnings"])
+        )
 
     def test_checks_source_group_and_destination_path_collision(self) -> None:
         """対象Groupの到達性と移行先Pathの競合を事前検出する。"""

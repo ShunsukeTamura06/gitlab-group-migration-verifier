@@ -6,14 +6,14 @@
 
 ### 1. 受領物を確認する
 
-- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.2-*.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.3-*.zip`
 - 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
 - Source / Destinationの短期Personal Access Token
 - Export、Manifest、レポートの承認済み保存先
 
-Tokenに必要な権限は、移行元が`api` scopeと対象GroupのOwner相当、移行先が`api` scopeとAdmin相当です。Tokenをチャット、チケット、メールで受け渡さないでください。
+Tokenに必要な権限は、移行元が`api` scopeと対象GroupのOwner相当、移行先が`api` scopeとGroup作成・Project Import権限です。既存の親Groupへ配置する場合は、そのGroupでSubgroupを作成できる権限も必要です。移行実行者にGitLabインスタンス管理者権限は不要です。Tokenをチャット、チケット、メールで受け渡さないでください。
 
 ### 2. 移行対象・非対象を確認する
 
@@ -54,6 +54,7 @@ Token入力中は文字も`*`も表示されませんが、入力されていま
 
 - 「失敗」があれば自動的に停止します。
 - 「警告」があれば、移行責任者の判断を確認するまで進めません。
+- 管理者専用設定を参照できない警告では、管理者からTokenを受け取らず、Import SourceとImport上限の確認結果だけを受け取ります。
 - 「事前診断だけ」ならGitLabへ変更を加えず終了します。
 - 初回は小規模で代表的なGroupを使った「Pilot移行」を選びます。
 

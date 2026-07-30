@@ -29,7 +29,11 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 - Python 3.11以上
 - 移行元と移行先のGitLabへHTTPS接続できる端末
 - 移行元: 対象GroupをExportできるOwner相当のPersonal Access Token
-- 移行先: Group / Project ImportとApplication Settings確認に必要なAdmin相当のPersonal Access Token
+- 移行先: `api` scopeと、移行先でGroupを作成してProjectをImportできるPersonal Access Token
+
+移行実行者にGitLabインスタンス管理者権限は不要です。管理者専用のApplication Settingsを参照できない場合、Preflightは自動確認をスキップして警告を表示します。管理者からTokenを受け取るのではなく、本番前にImport SourceとImport上限の確認結果だけを受け取ってください。既存の親Groupへ配置する場合は、そのGroupでSubgroupを作成できる権限が必要です。
+
+ただし、GitLab Self-ManagedでIssueやMerge Request等のユーザー関連付けを完全に保持する場合、GitLab公式手順は管理者によるImportを要件としています。一般利用者TokenでもGroup / Project本体のImportはできますが、作成者がImport実行者へ置き換わる可能性があります。[ユーザーマッピング](docs/user-mapping.md)を確認し、Pilot結果に基づいて運用を決めてください。
 
 ランタイム依存パッケージはありません。ユーザー名とパスワードによる認証、TLS検証の無効化、自動削除、自動上書きには対応していません。
 
@@ -39,7 +43,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 配布担当者:
 
-1. [v1.2.2 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.2)から公開Windows ZIPを取得します。
+1. [v1.2.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.3)から公開Windows ZIPを取得します。
 2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
 3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
 4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
@@ -59,19 +63,19 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ### macOS / Linux・上級者向け
 
-利用者は変更される`main`ではなく、[v1.2.2 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.2)のwheelをVersion固定で使用してください。
+利用者は変更される`main`ではなく、[v1.2.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.2.3)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.2/gitlab_group_migrator-1.2.2-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.3/gitlab_group_migrator-1.2.3-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.2/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.2.3/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.2.2-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.2.3-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -79,7 +83,7 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.2'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.2.3'
 ```
 
 ## 接続設定

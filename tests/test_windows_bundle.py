@@ -208,6 +208,9 @@ class MigrationWizardTest(unittest.TestCase):
         self.assertEqual("source-secret", environment["SOURCE_GITLAB_TOKEN"])
         self.assertEqual("destination-secret", environment["DESTINATION_GITLAB_TOKEN"])
         self.assertEqual(2, hidden_input.call_count)
+        destination_prompt = hidden_input.call_args_list[1].args[0]
+        self.assertIn("Group作成・Import権限", destination_prompt)
+        self.assertNotIn("Admin", destination_prompt)
 
     def test_preconfigured_urls_skip_url_and_ca_prompts(self) -> None:
         """社内配布設定があれば利用者へURLとCAを質問しない。"""
