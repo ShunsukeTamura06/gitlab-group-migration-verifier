@@ -307,6 +307,21 @@ def choose_group(
         print(f"  1から{len(groups)}の範囲で入力してください。")
 
 
+def child_process_environment(environment: Mapping[str, str]) -> dict[str, str]:
+    """CLIとの機械可読な入出力をUTF-8へ固定する。
+
+    Args:
+        environment: Tokenを含む子Process用環境変数。
+
+    Returns:
+        Pythonの入出力EncodingをUTF-8へ固定した環境変数。
+    """
+    child_environment = dict(environment)
+    child_environment["PYTHONIOENCODING"] = "utf-8"
+    child_environment["PYTHONUTF8"] = "1"
+    return child_environment
+
+
 def run_cli(
     arguments: Sequence[str],
     *,
@@ -328,7 +343,7 @@ def run_cli(
     return subprocess.run(
         [sys.executable, "-m", "gitlab_migrator.cli", *arguments],
         cwd=bundle_directory,
-        env=dict(environment),
+        env=child_process_environment(environment),
         check=False,
         text=True,
         encoding="utf-8",
@@ -358,7 +373,7 @@ def run_cli_with_progress(
     process = subprocess.Popen(
         [sys.executable, "-m", "gitlab_migrator.cli", *arguments],
         cwd=bundle_directory,
-        env=dict(environment),
+        env=child_process_environment(environment),
         stdout=subprocess.DEVNULL,
     )
     try:
