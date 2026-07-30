@@ -14,7 +14,7 @@ body:
     attributes:
       label: Migrator Version
       description: "`gitlab-migrator --version`の結果"
-      placeholder: gitlab-migrator 1.2.1
+      placeholder: gitlab-migrator 1.2.2
     validations:
       required: true
   - type: input

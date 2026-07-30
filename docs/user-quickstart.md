@@ -6,7 +6,7 @@
 
 ### 1. 受領物を確認する
 
-- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.1-*.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.2.2-*.zip`
 - 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
