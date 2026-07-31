@@ -9,7 +9,6 @@ from pathlib import Path
 from gitlab_migrator.client import ApiResponse
 from gitlab_migrator.errors import ExistingGroupError, GitLabApiError
 from gitlab_migrator.group_importer import GroupImporter
-
 from tests.helpers import tar_gz_bytes
 
 
@@ -20,6 +19,7 @@ class ImportClient:
         """既存Group有無を保持する。"""
         self.existing = existing
         self.uploaded = False
+        self.upload_timeout: object = None
 
     @staticmethod
     def encode_id(value: object) -> str:
@@ -34,9 +34,10 @@ class ImportClient:
             return {"id": 20, "full_path": "destination"}
         return {"id": 20, "full_path": "destination"}
 
-    def post_multipart(self, *_args: object, **_kwargs: object) -> ApiResponse:
+    def post_multipart(self, *_args: object, **kwargs: object) -> ApiResponse:
         """Import成功レスポンスを返す。"""
         self.uploaded = True
+        self.upload_timeout = kwargs.get("timeout_seconds")
         return ApiResponse(202, {}, b'{"id":20}')
 
 
@@ -56,10 +57,14 @@ class GroupImporterTest(unittest.TestCase):
     def test_resolves_imported_group_by_response_id(self) -> None:
         """ImportレスポンスのIDから作成済みGroupを特定する。"""
         client = ImportClient()
-        result = GroupImporter(client).import_group(  # type: ignore[arg-type]
+        result = GroupImporter(
+            client,  # type: ignore[arg-type]
+            timeout_seconds=7200,
+        ).import_group(
             self.archive, name="Destination", path="destination"
         )
         self.assertTrue(client.uploaded)
+        self.assertEqual(7200, client.upload_timeout)
         self.assertEqual(20, result.group_id)
         self.assertEqual("response_id", result.resolved_by)
 

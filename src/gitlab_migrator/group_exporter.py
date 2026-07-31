@@ -7,8 +7,8 @@ import os
 import re
 import tarfile
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .client import GitLabClient
 from .errors import ArchiveValidationError, ExportTimeoutError, GitLabApiError
@@ -88,6 +88,7 @@ class GroupExporter:
                 "GET",
                 f"/groups/{encoded_id}/export/download",
                 expected={200, 404, 429},
+                timeout_seconds=self.timeout_seconds,
             )
             if response.status == 200:
                 if not response.body:

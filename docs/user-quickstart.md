@@ -6,7 +6,7 @@
 
 ### 1. 受領物を確認する
 
-- 配布担当者が作成した`gitlab-group-migrator-internal-v1.3.3-*.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.3.4-*.zip`
 - 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
@@ -76,7 +76,7 @@ Manifestとレポートは、展開したフォルダー内の`work\manifests`�
 
 個人Project移行では、同じ展開フォルダーの`Start-GitLabMigration.cmd`をもう一度起動すると未完了Manifestを検出します。「続きから再開」を選ぶと、完了済みProjectをスキップして未完了Projectから処理します。移行元・移行先Tokenは初回と同じ本人アカウントのものを入力してください。
 
-v1.3.0、v1.3.1、v1.3.2のいずれかで失敗してv1.3.3へ更新する場合は、旧フォルダーを削除せず、新しい展開フォルダーへ旧フォルダーの`work`フォルダー全体をコピーしてから起動します。ManifestやExport Archiveを個別に編集しないでください。
+v1.3.0からv1.3.3のいずれかで失敗してv1.3.4へ更新する場合は、旧フォルダーを削除せず、新しい展開フォルダーへ旧フォルダーの`work`フォルダー全体をコピーしてから起動します。ManifestやExport Archiveを個別に編集しないでください。`_ssl.c`の`did not complete (write)`で止まった場合も同じ手順です。
 
 Group移行は自動再開に対応していません。同じ操作を再実行せず、[トラブルシューティング](troubleshooting.md)に従って情報を保存し、移行責任者へ連絡します。
 

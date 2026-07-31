@@ -11,9 +11,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from .config import GitLabConfig
 from .errors import GitLabApiError
@@ -76,6 +77,7 @@ class GitLabClient:
         data: bytes | None = None,
         headers: Mapping[str, str] | None = None,
         expected: set[int] | None = None,
+        timeout_seconds: float | None = None,
     ) -> ApiResponse:
         """GitLab APIへHTTPリクエストを送信する。
 
@@ -86,6 +88,7 @@ class GitLabClient:
             data: リクエスト本文。
             headers: 追加HTTPヘッダー。
             expected: 正常として扱うHTTPステータス。
+            timeout_seconds: このリクエスト専用の通信Timeout。
 
         Returns:
             APIレスポンス。
@@ -94,6 +97,13 @@ class GitLabClient:
             GitLabApiError: APIが期待外のレスポンスを返した場合。
         """
         expected_statuses = expected or {200}
+        request_timeout = (
+            self.config.timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        )
+        if request_timeout <= 0:
+            raise ValueError("通信Timeoutは正数で指定してください")
         query = urllib.parse.urlencode(params or {}, doseq=True)
         api_path = path if path.startswith("/") else f"/{path}"
         url = f"{self.config.url}/api/v4{api_path}"
@@ -111,20 +121,29 @@ class GitLabClient:
         response: ApiResponse | None = None
         for attempt in range(self.config.max_retries + 1):
             try:
-                response = self._transport(request, self.config.timeout_seconds)
+                response = self._transport(request, request_timeout)
             except (TimeoutError, urllib.error.URLError) as exc:
                 if attempt >= self.config.max_retries:
-                    raise GitLabApiError(f"GitLab APIへの接続に失敗しました: {exc}") from exc
+                    raise GitLabApiError(
+                        "GitLab APIへの接続に失敗しました"
+                        f"（{attempt + 1}回試行、通信Timeout={request_timeout:g}秒）: "
+                        f"{exc}"
+                    ) from exc
                 self._sleep(self._retry_delay(attempt))
                 continue
             if response.status in expected_statuses:
                 return response
-            if response.status == 429 or response.status >= 500:
-                if attempt < self.config.max_retries:
-                    retry_after = response.headers.get("Retry-After")
-                    delay = float(retry_after) if retry_after and retry_after.isdigit() else self._retry_delay(attempt)
-                    self._sleep(delay)
-                    continue
+            if (
+                response.status == 429 or response.status >= 500
+            ) and attempt < self.config.max_retries:
+                retry_after = response.headers.get("Retry-After")
+                delay = (
+                    float(retry_after)
+                    if retry_after and retry_after.isdigit()
+                    else self._retry_delay(attempt)
+                )
+                self._sleep(delay)
+                continue
             break
 
         assert response is not None
@@ -202,8 +221,21 @@ class GitLabClient:
         file_field: str,
         file_path: Path,
         expected: set[int] | None = None,
+        timeout_seconds: float | None = None,
     ) -> ApiResponse:
-        """ファイルをmultipart/form-dataとしてPOSTする。"""
+        """ファイルをmultipart/form-dataとしてPOSTする。
+
+        Args:
+            path: API相対パス。
+            fields: Form項目。
+            file_field: Upload FileのForm項目名。
+            file_path: UploadするFile。
+            expected: 正常として扱うHTTPステータス。
+            timeout_seconds: Upload専用の通信Timeout。
+
+        Returns:
+            APIレスポンス。
+        """
         boundary = f"----gitlab-migrator-{uuid.uuid4().hex}"
         chunks: list[bytes] = []
         for name, value in fields.items():
@@ -235,6 +267,7 @@ class GitLabClient:
             data=b"".join(chunks),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             expected=expected or {200, 201, 202},
+            timeout_seconds=timeout_seconds,
         )
 
     @staticmethod

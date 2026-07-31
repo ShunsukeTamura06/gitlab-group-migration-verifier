@@ -10,7 +10,6 @@ from pathlib import Path
 from gitlab_migrator.client import ApiResponse
 from gitlab_migrator.errors import ArchiveValidationError, ExportTimeoutError
 from gitlab_migrator.group_exporter import GroupExporter
-
 from tests.helpers import Clock, tar_gz_bytes
 
 
@@ -21,6 +20,7 @@ class ExportClient:
         """Download APIレスポンス列を保持する。"""
         self.downloads = downloads
         self.export_started = False
+        self.request_timeouts: list[object] = []
 
     @staticmethod
     def encode_id(value: int) -> str:
@@ -32,8 +32,9 @@ class ExportClient:
         self.last_get = path
         return {"id": 10, "path": "日本語グループ"}
 
-    def request(self, method: str, path: str, **_kwargs: object) -> ApiResponse:
+    def request(self, method: str, path: str, **kwargs: object) -> ApiResponse:
         """Export開始またはDownload結果を返す。"""
+        self.request_timeouts.append(kwargs.get("timeout_seconds"))
         if method == "POST":
             self.export_started = True
             return ApiResponse(202, {}, b"")
@@ -63,6 +64,7 @@ class GroupExporterTest(unittest.TestCase):
             self.assertEqual(len(archive), result.archive_size)
             self.assertEqual(hashlib.sha256(archive).hexdigest(), result.sha256)
             self.assertFalse(list(Path(directory).glob("*.part")))
+            self.assertEqual([None, 5, 5], client.request_timeouts)
 
     def test_waits_on_rate_limit_and_respects_retry_after(self) -> None:
         """429を一時状態として扱いRetry-After以上待機する。"""
@@ -97,15 +99,17 @@ class GroupExporterTest(unittest.TestCase):
         """404が継続した場合は有限時間で失敗する。"""
         client = ExportClient([ApiResponse(404, {}, b"")] * 3)
         clock = Clock()
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(ExportTimeoutError):
-                GroupExporter(
-                    client,  # type: ignore[arg-type]
-                    poll_interval_seconds=1,
-                    timeout_seconds=2,
-                    sleep=clock.sleep,
-                    monotonic=clock.monotonic,
-                ).export(10, Path(directory))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaises(ExportTimeoutError),
+        ):
+            GroupExporter(
+                client,  # type: ignore[arg-type]
+                poll_interval_seconds=1,
+                timeout_seconds=2,
+                sleep=clock.sleep,
+                monotonic=clock.monotonic,
+            ).export(10, Path(directory))
 
 
 if __name__ == "__main__":
