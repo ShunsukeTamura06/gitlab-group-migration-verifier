@@ -37,13 +37,13 @@ Token、Variable値、Webhook Secret、Deploy Token、Runner Tokenは、Export�
 
 暗号化された管理端末または作業用VMを使用し、作業ディレクトリへのアクセスを担当者へ限定します。
 
-Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.3.0.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
+Windowsの通常利用者は、Releaseの`gitlab-group-migrator-windows-v1.3.1.zip`を「すべて展開」し、`Start-GitLabMigration.cmd`をダブルクリックします。Checksum検査、専用実行環境、Install、Tokenの非表示入力、Preflight、移行、レポート生成はウィザードが案内します。以下はmacOS / Linuxまたは手動運用向けです。
 
 ```bash
 umask 077
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./gitlab_group_migrator-1.3.0-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.3.1-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -137,19 +137,26 @@ Windowsウィザードで「アカウント直下の全Project」を選ぶと、
 
 個人NamespaceへのImportでは投稿者マッピングを保持できません。Issue、Merge Request、Comment等の投稿者は移行先アカウントへ集約され、後から再割り当てできません。この制約を受け入れられない場合は、個人Namespaceではなく承認済みGroup配下への移行方式を選びます。
 
+Project Exportの開始・状態確認・DownloadがHTTP 429を返した場合、ツールはGitLabの制限解除を待って自動再試行します。`Retry-After`がない場合は60秒待機します。処理中の画面を閉じないでください。
+
 実行例:
 
 ```bash
-gitlab-migrator migrate-tree \
-  --source-group-id 123 \
-  --destination-name engineering \
-  --destination-path engineering \
-  --include-projects \
-  --manifest work/manifests/engineering-tree.json
+gitlab-migrator --poll-interval 20 --timeout 7200 \
+  migrate-personal-projects \
+  --manifest work/manifests/personal-projects.json
 
 gitlab-migrator report \
-  --manifest work/manifests/engineering-tree.json \
-  --output work/reports/engineering.md
+  --manifest work/manifests/personal-projects.json \
+  --output work/reports/personal-projects.md
+```
+
+失敗または中断後:
+
+```bash
+gitlab-migrator --poll-interval 20 --timeout 7200 \
+  resume-personal-projects \
+  --manifest work/manifests/personal-projects.json
 ```
 
 ## 8. 失敗時
@@ -158,7 +165,8 @@ gitlab-migrator report \
 - Manifestの最後のState、作成済みDestination Group ID、Archive SHA-256を記録する。
 - `gitlab-migrator --version`、GitLab Version、発生時刻、Project Importの`correlation_id`と`failed_relations`を記録する。
 - DestinationにGroup / Projectが作成済みなら、ツールは次回実行を停止する。
-- 現Versionでは`--resume`が未実装のため、新しいDestination Pathで最初からやり直すか、管理者がManifestと実体を確認したうえで個別コマンドを使う。
+- 個人Project移行は同じManifestを指定した`resume-personal-projects`で再開する。Windowsでは同じ展開フォルダーから起動し、「続きから再開」を選ぶ。
+- Groupツリー移行のResumeは未対応のため、新しいDestination Pathで最初からやり直すか、管理者がManifestと実体を確認したうえで個別コマンドを使う。
 - Destinationリソースの削除は、このツール外の承認済み手順で行う。
 - Sourceの凍結解除または切り戻しは、移行責任者の判断後に行う。
 

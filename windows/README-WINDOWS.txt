@@ -52,6 +52,16 @@ Tokenをチャット、チケット、メール、スクリーンショットへ
 - 本番前のPilot、バックアップ、変更凍結、切り戻し確認が終わっていない
 - 途中でエラーになった（同じ操作をそのまま再実行しない）
 
+個人Project移行の再開
+---------------------
+個人Project移行で途中エラーになった場合は、このフォルダーを削除せず、
+Start-GitLabMigration.cmdをもう一度起動してください。
+未完了Manifestが見つかると「続きから再開」を選べます。
+完了済みProjectは再Importしません。
+
+v1.3.0からv1.3.1へ更新する場合は、旧フォルダーのworkフォルダー全体を
+新しい展開フォルダーへコピーしてから起動してください。
+
 詳細
 ----
 https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier

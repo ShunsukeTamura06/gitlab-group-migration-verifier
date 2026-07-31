@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,6 @@ from gitlab_migrator.client import ApiResponse
 from gitlab_migrator.errors import GitLabApiError
 from gitlab_migrator.project_exporter import ProjectExporter
 from gitlab_migrator.project_importer import ProjectImporter
-
 from tests.helpers import Clock, tar_gz_bytes
 
 
@@ -23,16 +23,49 @@ class ProjectExportClient:
         self.statuses = ["started", "finished"]
 
     def get_json(self, path: str) -> dict[str, object]:
-        """ProjectまたはExport Statusを返す。"""
-        if path.endswith("/export"):
-            return {"export_status": self.statuses.pop(0)}
+        """Project情報を返す。"""
         return {"id": 2, "path": "api-service"}
 
     def request(self, method: str, path: str, **_kwargs: object) -> ApiResponse:
-        """Export開始とDownloadに応答する。"""
+        """Export開始、Status、Downloadに応答する。"""
         if method == "POST":
             return ApiResponse(202, {}, b"")
+        if path.endswith("/export"):
+            return ApiResponse(
+                200,
+                {},
+                json.dumps({"export_status": self.statuses.pop(0)}).encode(),
+            )
         return ApiResponse(200, {}, self.archive)
+
+
+class RateLimitedProjectExportClient(ProjectExportClient):
+    """最初のDownloadだけ429を返すFakeクライアント。"""
+
+    def __init__(
+        self,
+        archive: bytes,
+        *,
+        retry_after: str | None = None,
+    ) -> None:
+        """ArchiveとRetry-Afterを保持する。"""
+        super().__init__(archive)
+        self.statuses = ["finished"]
+        self.retry_after = retry_after
+        self.download_count = 0
+
+    def request(self, method: str, path: str, **kwargs: object) -> ApiResponse:
+        """Downloadの初回だけ429を返す。"""
+        if path.endswith("/export/download"):
+            self.download_count += 1
+            if self.download_count == 1:
+                headers = (
+                    {"Retry-After": self.retry_after}
+                    if self.retry_after is not None
+                    else {}
+                )
+                return ApiResponse(429, headers, b'{"message":"too many"}')
+        return super().request(method, path, **kwargs)
 
 
 class ProjectImportClient:
@@ -100,6 +133,40 @@ class ProjectMigrationTest(unittest.TestCase):
             ).export(2, Path(directory))
             self.assertEqual(2, clock.value)
             self.assertEqual(len(archive), result.archive_size)
+
+    def test_waits_sixty_seconds_when_export_download_returns_429(self) -> None:
+        """Retry-AfterなしのDownload制限は既定周期の60秒待機する。"""
+        archive = tar_gz_bytes("project.json")
+        client = RateLimitedProjectExportClient(archive)
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as directory:
+            result = ProjectExporter(
+                client,  # type: ignore[arg-type]
+                poll_interval_seconds=20,
+                timeout_seconds=180,
+                sleep=clock.sleep,
+                monotonic=clock.monotonic,
+            ).export(2, Path(directory))
+
+        self.assertEqual(60, clock.value)
+        self.assertEqual(2, client.download_count)
+        self.assertEqual(len(archive), result.archive_size)
+
+    def test_respects_retry_after_for_export_download_429(self) -> None:
+        """Download制限にRetry-Afterがあればその秒数以上待機する。"""
+        archive = tar_gz_bytes("project.json")
+        client = RateLimitedProjectExportClient(archive, retry_after="75")
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as directory:
+            ProjectExporter(
+                client,  # type: ignore[arg-type]
+                poll_interval_seconds=20,
+                timeout_seconds=180,
+                sleep=clock.sleep,
+                monotonic=clock.monotonic,
+            ).export(2, Path(directory))
+
+        self.assertEqual(75, clock.value)
 
     def test_waits_until_import_status_finished(self) -> None:
         """Project作成直後のscheduledを完了扱いしない。"""
