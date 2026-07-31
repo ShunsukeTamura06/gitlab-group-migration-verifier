@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import patch
 
 from gitlab_migrator.config import GitLabConfig
-from gitlab_migrator.errors import GitLabApiError, MigratorError
+from gitlab_migrator.errors import ExistingGroupError, GitLabApiError, MigratorError
 from gitlab_migrator.manifest import ManifestStore
 from gitlab_migrator.models import ProjectExportResult, ProjectImportResult
 from gitlab_migrator.personal_project_migrator import (
@@ -142,8 +142,8 @@ class PersonalProjectMigrationTest(unittest.TestCase):
         )
         self.assertEqual("passed", path_check["status"])
 
-    def test_preflight_fails_before_migration_when_path_exists(self) -> None:
-        """移行先個人Namespaceの同名Projectを上書きしない。"""
+    def test_preflight_warns_and_skips_when_path_exists(self) -> None:
+        """同名Projectを上書きせず、警告して移行対象から除外する。"""
         source = PersonalProjectClient(
             "source-user",
             [
@@ -166,15 +166,21 @@ class PersonalProjectMigrationTest(unittest.TestCase):
             destination,
         )
 
-        self.assertEqual("failed", result["status"])
+        self.assertEqual("warning", result["status"])
+        self.assertEqual(1, result["collision_count"])
+        self.assertEqual(0, result["migration_candidate_count"])
         path_check = next(
             item
             for item in result["checks"]
             if item["name"] == "destination.personal_project_paths"
         )
+        self.assertEqual("warning", path_check["status"])
         self.assertEqual(
             ["destination-user/alpha"],
             path_check["detail"]["collisions"],
+        )
+        self.assertTrue(
+            any("上書き・内容比較せずスキップ" in item for item in result["warnings"])
         )
 
     def test_migrates_every_personal_project_to_destination_user(self) -> None:
@@ -250,6 +256,136 @@ class PersonalProjectMigrationTest(unittest.TestCase):
                 call.kwargs["personal_namespace_path"] == "destination-user"
                 for call in importer.return_value.import_project.call_args_list
             )
+        )
+
+    def test_skips_existing_destination_project_and_migrates_remaining(self) -> None:
+        """衝突Projectを記録してスキップし、残りだけをImportする。"""
+        projects = [
+            {
+                "id": 1,
+                "name": "Alpha",
+                "path": "alpha",
+                "path_with_namespace": "source-user/alpha",
+            },
+            {
+                "id": 2,
+                "name": "Beta",
+                "path": "beta",
+                "path_with_namespace": "source-user/beta",
+            },
+        ]
+        source = PersonalProjectClient("source-user", projects)
+        destination = PersonalProjectClient(
+            "destination-user",
+            [],
+            existing_paths={"destination-user/alpha"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "project.tar.gz"
+            archive.write_bytes(b"archive")
+            exporter_result = ProjectExportResult(
+                project_id=2,
+                archive_path=archive,
+                archive_size=7,
+                sha256="a" * 64,
+            )
+            importer_result = ProjectImportResult(
+                project_id=12,
+                full_path="destination-user/beta",
+                response={},
+                resolved_by="response_id",
+            )
+            with (
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectExporter"
+                ) as exporter,
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectImporter"
+                ) as importer,
+            ):
+                exporter.return_value.export.return_value = exporter_result
+                importer.return_value.import_project.return_value = importer_result
+                result = PersonalProjectMigrator(  # type: ignore[arg-type]
+                    source,
+                    destination,
+                    export_dir=root / "exports",
+                    manifest_path=root / "manifest.json",
+                ).migrate()
+
+        self.assertEqual("warning", result["status"])
+        self.assertEqual(1, result["verification"]["imported_project_count"])
+        self.assertEqual(1, result["verification"]["skipped_project_count"])
+        self.assertEqual(
+            ["destination-user/alpha"],
+            result["verification"]["skipped_projects"],
+        )
+        skipped = next(
+            item
+            for item in result["projects"]
+            if item["verification_status"] == "skipped"
+        )
+        self.assertEqual("skipped_existing", skipped["migration_status"])
+        self.assertEqual(99, skipped["destination_project_id"])
+        exporter.return_value.export.assert_called_once()
+        self.assertEqual(2, exporter.return_value.export.call_args.args[0])
+        importer.return_value.import_project.assert_called_once()
+        self.assertEqual(
+            "beta",
+            importer.return_value.import_project.call_args.kwargs["path"],
+        )
+
+    def test_skips_project_created_between_precheck_and_import(self) -> None:
+        """Import直前に同名Projectが作成されても上書きせずスキップする。"""
+        projects = [
+            {
+                "id": 1,
+                "name": "Alpha",
+                "path": "alpha",
+                "path_with_namespace": "source-user/alpha",
+            }
+        ]
+        source = PersonalProjectClient("source-user", projects)
+        destination = PersonalProjectClient("destination-user", [])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "project.tar.gz"
+            archive.write_bytes(b"archive")
+            exporter_result = ProjectExportResult(
+                project_id=1,
+                archive_path=archive,
+                archive_size=7,
+                sha256="a" * 64,
+            )
+
+            def create_collision(
+                *_args: object, **_kwargs: object
+            ) -> None:
+                destination.existing_paths.add("destination-user/alpha")
+                raise ExistingGroupError("already exists")
+
+            with (
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectExporter"
+                ) as exporter,
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectImporter"
+                ) as importer,
+            ):
+                exporter.return_value.export.return_value = exporter_result
+                importer.return_value.import_project.side_effect = create_collision
+                result = PersonalProjectMigrator(  # type: ignore[arg-type]
+                    source,
+                    destination,
+                    export_dir=root / "exports",
+                    manifest_path=root / "manifest.json",
+                ).migrate()
+
+        self.assertEqual("warning", result["status"])
+        self.assertEqual(1, result["verification"]["skipped_project_count"])
+        self.assertEqual(
+            "skipped_existing",
+            result["projects"][0]["migration_status"],
         )
 
     def test_resumes_old_manifest_without_reimporting_completed_projects(self) -> None:
