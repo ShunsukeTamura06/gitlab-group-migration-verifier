@@ -21,8 +21,10 @@ except ImportError:
 InputFunction = Callable[[str], str]
 INTERNAL_RUNTIME_FILES = (
     "Start-GitLabMigration.cmd",
+    "Clear-SavedTokens.cmd",
     "windows_bootstrap.py",
     "migration_wizard.py",
+    "credential_store.py",
     "README-WINDOWS.txt",
     "MIGRATION-SCOPE.md",
     "SHA256SUMS",

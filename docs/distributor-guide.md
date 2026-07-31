@@ -4,7 +4,7 @@
 
 ## 公開Releaseから取得する
 
-1. GitHub Releaseから`gitlab-group-migrator-windows-v1.3.2.zip`をDownloadします。
+1. GitHub Releaseから`gitlab-group-migrator-windows-v1.3.3.zip`をDownloadします。
 2. 公開Releaseの`SHA256SUMS`でZIPを検証します。
 3. ZIPを右クリックし、「すべて展開」を選びます。
 
@@ -40,4 +40,4 @@
 
 利用者は社内専用ZIPを展開し、`Start-GitLabMigration.cmd`をダブルクリックします。URL、社内CA、必要容量は質問されません。URLを質問された場合は公開汎用ZIPを誤って使用しているため、操作を中止して配布担当者へ連絡します。
 
-利用者が入力するのはAccess Token、移行対象Group、実行Mode、移行先Group名とPathです。詳細は[利用者Quickstart](user-quickstart.md)を参照してください。
+利用者が初回に入力するAccess Tokenは、本人が了承した場合だけ現在のWindowsユーザーの資格情報マネージャーへ保存されます。社内専用ZIPや`migration-settings.json`には保存されません。移行対象Group、実行Mode、移行先Group名とPathの操作を含む詳細は[利用者Quickstart](user-quickstart.md)を参照してください。

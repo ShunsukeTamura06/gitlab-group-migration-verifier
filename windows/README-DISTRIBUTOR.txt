@@ -4,7 +4,8 @@ GitLab Group Migrator - 社内配布担当者向け
 重要
 ----
 - 実際のGitLab URLをGitHub、公開Issue、チャットへ投稿しないでください。
-- Access Tokenは設定しません。利用者が実行時に非表示入力します。
+- Access Tokenは設定しません。利用者が初回に非表示入力し、本人が了承した場合だけ
+  そのWindowsユーザーの資格情報マネージャーへ保存します。
 - 生成した社内専用ZIPをGitHubへUploadしないでください。
 
 社内専用ZIPの作り方

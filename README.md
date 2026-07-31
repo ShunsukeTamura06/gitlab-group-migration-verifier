@@ -45,7 +45,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 配布担当者:
 
-1. [v1.3.2 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.2)から公開Windows ZIPを取得します。
+1. [v1.3.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.3)から公開Windows ZIPを取得します。
 2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
 3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
 4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
@@ -57,7 +57,8 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 1. 社内配布担当者から受領したZIPを「すべて展開」します。
 2. `MIGRATION-SCOPE.md`で移行対象・非対象を確認します。
 3. `Start-GitLabMigration.cmd`をダブルクリックします。
-4. Access Tokenを非表示入力し、Group移行または個人Project一括移行を番号で選びます。
+4. 初回だけAccess Tokenを非表示入力し、Windows資格情報マネージャーへの保存を選びます。
+5. Group移行または個人Project一括移行を番号で選びます。
 
 利用者へGitLab URL、社内CA、必要容量は質問しません。質問された場合は公開汎用ZIPを誤って使用しているため、操作を中止します。初回起動時にChecksum確認、専用仮想環境の作成、ツールのInstallを自動実行します。
 
@@ -65,19 +66,19 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ### macOS / Linux・上級者向け
 
-利用者は変更される`main`ではなく、[v1.3.2 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.2)のwheelをVersion固定で使用してください。
+利用者は変更される`main`ではなく、[v1.3.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.3)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.2/gitlab_group_migrator-1.3.2-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.3/gitlab_group_migrator-1.3.3-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.2/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.3/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.3.2-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.3.3-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -85,12 +86,14 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.3.2'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.3.3'
 ```
 
 ## 接続設定
 
-Windows社内専用ZIPではGitLab URLが配布担当者により設定済みで、利用者は画面の非表示入力欄へ移行元・移行先のTokenだけを貼り付けます。以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
+Windows社内専用ZIPではGitLab URLが配布担当者により設定済みです。初回に移行元・移行先Tokenを非表示入力し、保存を了承すると、現在のWindowsユーザーの資格情報マネージャーへ接続先別に保存され、次回から自動利用されます。Tokenは配布フォルダーや設定JSONへ保存されません。変更・失効時は`Clear-SavedTokens.cmd`で削除してください。
+
+以下の環境変数設定はmacOS / Linuxおよび上級者向けです。Tokenは設定ファイルへ保存せず、Secrets Manager等から環境変数へ短時間だけ注入してください。
 
 ```bash
 export SOURCE_GITLAB_URL='https://gitlab-old.internal.example'
