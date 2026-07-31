@@ -13,9 +13,11 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 REQUIRED_FILES = (
     "Start-GitLabMigration.cmd",
+    "Clear-SavedTokens.cmd",
     "Configure-Distribution.cmd",
     "windows_bootstrap.py",
     "migration_wizard.py",
+    "credential_store.py",
     "configure_distribution.py",
     "README-WINDOWS.txt",
     "README-DISTRIBUTOR.txt",

@@ -174,6 +174,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="配布物のChecksum検査だけを行う",
     )
+    parser.add_argument(
+        "--clear-saved-tokens",
+        action="store_true",
+        help="Windows資格情報マネージャーの保存済みTokenを削除する",
+    )
     return parser
 
 
@@ -206,8 +211,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise BootstrapError(
                 "migration_wizard.pyがありません。ZIPをもう一度展開してください"
             )
+        wizard_arguments = (
+            ["--clear-saved-tokens"] if args.clear_saved_tokens else []
+        )
         return subprocess.run(
-            [str(python), str(wizard)],
+            [str(python), str(wizard), *wizard_arguments],
             cwd=bundle_directory,
             check=False,
         ).returncode

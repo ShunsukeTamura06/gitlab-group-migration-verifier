@@ -111,9 +111,11 @@ jobs:
               bundle_names = set(archive.namelist())
           required_bundle = (
               "/Start-GitLabMigration.cmd",
+              "/Clear-SavedTokens.cmd",
               "/Configure-Distribution.cmd",
               "/windows_bootstrap.py",
               "/migration_wizard.py",
+              "/credential_store.py",
               "/configure_distribution.py",
               "/README-WINDOWS.txt",
               "/README-DISTRIBUTOR.txt",
@@ -180,10 +182,17 @@ jobs:
           $wizard = (Get-ChildItem extracted -Recurse -Filter migration_wizard.py).FullName
           $configure = (Get-ChildItem extracted -Recurse -Filter configure_distribution.py).FullName
           $startCommand = (Get-ChildItem extracted -Recurse -Filter Start-GitLabMigration.cmd).FullName
+          $clearCommand = (Get-ChildItem extracted -Recurse -Filter Clear-SavedTokens.cmd).FullName
           $configureCommand = (Get-ChildItem extracted -Recurse -Filter Configure-Distribution.cmd).FullName
           py -3 $bootstrap --verify-only
-          py -3 $wizard --help
+          $wizardHelp = py -3 $wizard --help
+          if ($wizardHelp -notmatch "--clear-saved-tokens") {
+            throw "migration_wizard.py does not expose --clear-saved-tokens"
+          }
           py -3 $configure --help
+          if (-not (Test-Path $clearCommand)) {
+            throw "Clear-SavedTokens.cmd is missing"
+          }
           $env:GITLAB_MIGRATOR_NO_PAUSE = "1"
           cmd.exe /d /c "`"$startCommand`" --verify-only"
           if ($LASTEXITCODE -ne 0) {
@@ -193,3 +202,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Configure-Distribution.cmd failed with exit code $LASTEXITCODE"
           }
+      - name: Verify Windows Credential Manager
+        shell: pwsh
+        run: py -3 -m unittest tests.test_windows_bundle.WindowsCredentialStoreTest -v

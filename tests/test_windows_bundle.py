@@ -9,6 +9,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -16,10 +17,74 @@ from zipfile import ZipFile
 
 from windows import (
     configure_distribution,
+    credential_store,
     migration_wizard,
     package_windows_bundle,
     windows_bootstrap,
 )
+
+
+class FakeCredentialStore:
+    """Test用のMemory内Token保存先。"""
+
+    def __init__(self, values: dict[str, str] | None = None) -> None:
+        """初期値を保持する。
+
+        Args:
+            values: Target名とTokenの初期値。
+        """
+        self.values = dict(values or {})
+        self.writes: list[tuple[str, str]] = []
+
+    def read(self, target: str) -> str | None:
+        """保存済みTokenを返す。
+
+        Args:
+            target: 資格情報Target名。
+
+        Returns:
+            保存済みToken。存在しない場合はNone。
+        """
+        return self.values.get(target)
+
+    def write(self, target: str, token: str) -> None:
+        """TokenをMemoryへ保存する。
+
+        Args:
+            target: 資格情報Target名。
+            token: 保存するToken。
+        """
+        self.values[target] = token
+        self.writes.append((target, token))
+
+    def delete(self, target: str) -> bool:
+        """保存済みTokenをMemoryから削除する。
+
+        Args:
+            target: 資格情報Target名。
+
+        Returns:
+            削除対象が存在した場合True。
+        """
+        return self.values.pop(target, None) is not None
+
+
+@unittest.skipUnless(os.name == "nt", "Windows Credential API専用Test")
+class WindowsCredentialStoreTest(unittest.TestCase):
+    """Windows資格情報マネージャーとの実接続を検証する。"""
+
+    def test_write_read_and_delete_generic_credential(self) -> None:
+        """現在のWindowsユーザー用資格情報を往復できる。"""
+        store = credential_store.WindowsCredentialStore()
+        target = f"gitlab-group-migrator:test:{uuid.uuid4()}"
+        try:
+            store.write(target, "temporary-test-token")
+
+            self.assertEqual("temporary-test-token", store.read(target))
+            self.assertTrue(store.delete(target))
+            self.assertIsNone(store.read(target))
+        finally:
+            store.delete(target)
 
 
 class WindowsBundleTest(unittest.TestCase):
@@ -45,8 +110,10 @@ class WindowsBundleTest(unittest.TestCase):
                 )
                 example = json.loads(archive.read(example_name))
             self.assertTrue(any(name.endswith("/Start-GitLabMigration.cmd") for name in names))
+            self.assertTrue(any(name.endswith("/Clear-SavedTokens.cmd") for name in names))
             self.assertTrue(any(name.endswith("/Configure-Distribution.cmd") for name in names))
             self.assertTrue(any(name.endswith("/migration_wizard.py") for name in names))
+            self.assertTrue(any(name.endswith("/credential_store.py") for name in names))
             self.assertTrue(any(name.endswith("/configure_distribution.py") for name in names))
             self.assertTrue(any(name.endswith("/MIGRATION-SCOPE.md") for name in names))
             self.assertTrue(
@@ -78,7 +145,7 @@ class WindowsBundleTest(unittest.TestCase):
                     for name in archive.namelist()
                     if name.endswith(".cmd")
                 }
-            self.assertEqual(2, len(command_files))
+            self.assertEqual(3, len(command_files))
             for name, content in command_files.items():
                 with self.subTest(name=name):
                     self.assertTrue(content.isascii())
@@ -212,6 +279,130 @@ class MigrationWizardTest(unittest.TestCase):
         destination_prompt = hidden_input.call_args_list[1].args[0]
         self.assertIn("Group作成・Import権限", destination_prompt)
         self.assertNotIn("Admin", destination_prompt)
+
+    def test_saved_tokens_are_reused_without_prompting(self) -> None:
+        """保存済みTokenが揃っていれば再入力を要求しない。"""
+        settings = {
+            "source_gitlab_url": "https://source.example.invalid",
+            "destination_gitlab_url": "https://destination.example.invalid",
+            "required_free_gib": 50,
+            "prompt_for_ca_bundle": False,
+        }
+        source_target = migration_wizard.credential_target(
+            "source",
+            str(settings["source_gitlab_url"]),
+        )
+        destination_target = migration_wizard.credential_target(
+            "destination",
+            str(settings["destination_gitlab_url"]),
+        )
+        store = FakeCredentialStore(
+            {
+                source_target: "saved-source",
+                destination_target: "saved-destination",
+            }
+        )
+
+        def unexpected_input(_: str) -> str:
+            """通常入力が呼ばれたらTestを失敗させる。"""
+            self.fail("保存済みTokenがあるのに入力を要求しました")
+
+        with patch.object(
+            getpass,
+            "getpass",
+            side_effect=AssertionError("Token再入力を要求しました"),
+        ):
+            environment = migration_wizard.collect_environment(
+                settings=settings,
+                input_function=unexpected_input,
+                credential_store=store,
+            )
+
+        self.assertEqual("saved-source", environment["SOURCE_GITLAB_TOKEN"])
+        self.assertEqual(
+            "saved-destination",
+            environment["DESTINATION_GITLAB_TOKEN"],
+        )
+        self.assertNotIn("source.example.invalid", source_target)
+        self.assertNotIn("destination.example.invalid", destination_target)
+
+    def test_new_tokens_can_be_saved_to_windows_credential_store(self) -> None:
+        """初回入力したTokenを利用者の了承後に資格情報Storeへ保存する。"""
+        settings = {
+            "source_gitlab_url": "https://source.example.invalid",
+            "destination_gitlab_url": "https://destination.example.invalid",
+            "required_free_gib": 50,
+            "prompt_for_ca_bundle": False,
+        }
+        store = FakeCredentialStore()
+        with patch.object(
+            getpass,
+            "getpass",
+            side_effect=["source-secret", "destination-secret"],
+        ):
+            environment = migration_wizard.collect_environment(
+                settings=settings,
+                input_function=lambda _: "",
+                credential_store=store,
+            )
+
+        self.assertEqual("source-secret", environment["SOURCE_GITLAB_TOKEN"])
+        self.assertEqual("destination-secret", environment["DESTINATION_GITLAB_TOKEN"])
+        self.assertEqual(2, len(store.writes))
+        self.assertEqual(
+            {"source-secret", "destination-secret"},
+            {token for _, token in store.writes},
+        )
+
+    def test_token_storage_can_be_declined(self) -> None:
+        """共有WindowsアカウントではTokenを保存せずに実行できる。"""
+        settings = {
+            "source_gitlab_url": "https://source.example.invalid",
+            "destination_gitlab_url": "https://destination.example.invalid",
+            "required_free_gib": 50,
+            "prompt_for_ca_bundle": False,
+        }
+        store = FakeCredentialStore()
+        with patch.object(
+            getpass,
+            "getpass",
+            side_effect=["source-secret", "destination-secret"],
+        ):
+            environment = migration_wizard.collect_environment(
+                settings=settings,
+                input_function=lambda _: "n",
+                credential_store=store,
+            )
+
+        self.assertEqual("source-secret", environment["SOURCE_GITLAB_TOKEN"])
+        self.assertEqual("destination-secret", environment["DESTINATION_GITLAB_TOKEN"])
+        self.assertEqual([], store.writes)
+
+    def test_saved_tokens_can_be_cleared_for_current_endpoints(self) -> None:
+        """現在の接続先に対応する移行元・移行先Tokenだけを削除する。"""
+        source_url = "https://source.example.invalid"
+        destination_url = "https://destination.example.invalid"
+        source_target = migration_wizard.credential_target("source", source_url)
+        destination_target = migration_wizard.credential_target(
+            "destination",
+            destination_url,
+        )
+        store = FakeCredentialStore(
+            {
+                source_target: "source-secret",
+                destination_target: "destination-secret",
+                "unrelated": "keep-me",
+            }
+        )
+
+        deleted = migration_wizard.clear_saved_tokens(
+            source_url=source_url,
+            destination_url=destination_url,
+            credential_store=store,
+        )
+
+        self.assertEqual(2, deleted)
+        self.assertEqual({"unrelated": "keep-me"}, store.values)
 
     def test_captured_cli_output_is_forced_to_utf8(self) -> None:
         """親環境がCP932でも子CLIの日本語出力をUTF-8で読み取る。"""
@@ -429,18 +620,20 @@ class MigrationWizardTest(unittest.TestCase):
             ),
             stderr="",
         )
-        with tempfile.TemporaryDirectory() as temporary:
-            with patch.object(
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.object(
                 migration_wizard,
                 "run_cli",
                 side_effect=[project_result, preflight_result],
-            ) as run_cli:
-                exit_code = migration_wizard.execute_personal_project_migration(
-                    environment={},
-                    bundle_directory=Path(temporary),
-                    settings={"required_free_gib": 50},
-                    input_function=lambda _: "1",
-                )
+            ) as run_cli,
+        ):
+            exit_code = migration_wizard.execute_personal_project_migration(
+                environment={},
+                bundle_directory=Path(temporary),
+                settings={"required_free_gib": 50},
+                input_function=lambda _: "1",
+            )
 
         self.assertEqual(0, exit_code)
         self.assertEqual(2, run_cli.call_count)
@@ -491,25 +684,25 @@ class MigrationWizardTest(unittest.TestCase):
             stderr="",
         )
         answers = iter(["2", "PERSONAL"])
-        with tempfile.TemporaryDirectory() as temporary:
-            with (
-                patch.object(
-                    migration_wizard,
-                    "run_cli",
-                    side_effect=[project_result, preflight_result, report_result],
-                ),
-                patch.object(
-                    migration_wizard,
-                    "run_cli_with_progress",
-                    return_value=0,
-                ) as migrate,
-            ):
-                exit_code = migration_wizard.execute_personal_project_migration(
-                    environment={},
-                    bundle_directory=Path(temporary),
-                    settings={"required_free_gib": 50},
-                    input_function=lambda _: next(answers),
-                )
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.object(
+                migration_wizard,
+                "run_cli",
+                side_effect=[project_result, preflight_result, report_result],
+            ),
+            patch.object(
+                migration_wizard,
+                "run_cli_with_progress",
+                return_value=0,
+            ) as migrate,
+        ):
+            exit_code = migration_wizard.execute_personal_project_migration(
+                environment={},
+                bundle_directory=Path(temporary),
+                settings={"required_free_gib": 50},
+                input_function=lambda _: next(answers),
+            )
 
         self.assertEqual(0, exit_code)
         migration_arguments = migrate.call_args.args[0]

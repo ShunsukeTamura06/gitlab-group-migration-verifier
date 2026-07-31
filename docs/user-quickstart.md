@@ -6,7 +6,7 @@
 
 ### 1. 受領物を確認する
 
-- 配布担当者が作成した`gitlab-group-migrator-internal-v1.3.2-*.zip`
+- 配布担当者が作成した`gitlab-group-migrator-internal-v1.3.3-*.zip`
 - 配布ZIPの`.sha256`ファイル
 - ZIPに同梱された`MIGRATION-SCOPE.md`
 - 記入済みの[移行申請テンプレート](migration-request-template.md)
@@ -39,14 +39,16 @@ ZIPに同梱された`MIGRATION-SCOPE.md`を開き、次を移行責任者と確
 
 次の順に入力します。
 
-1. 移行元・移行先Access Token
+1. 初回だけ移行元・移行先Access Tokenと、Windows資格情報マネージャーへ保存するか
 2. 「Groupと配下の全Project」または「アカウント直下の全Project」
 3. Group移行では、移行元Groupと実行Mode、移行先Group名・Path
 4. 個人Project移行では、「事前診断だけ」または「全Projectを移行」
 
 GitLab URL、社内CA、必要容量は配布担当者が設定済みのため質問されません。URLを質問された場合は公開汎用ZIPを使用しているため、操作を中止して配布担当者へ連絡してください。
 
-Token入力中は文字も`*`も表示されませんが、入力されています。貼り付けてEnterを押してください。Tokenはファイルへ保存されません。
+Token入力中は文字も`*`も表示されませんが、入力されています。貼り付けてEnterを押してください。「保存しますか」でEnterを押すと、現在のWindowsユーザーの資格情報マネージャーへ保存され、次回から入力を省略します。Tokenは配布フォルダーや設定JSONへ保存されません。
+
+共有Windowsアカウントでは保存せず`n`を入力してください。保存したTokenを変更・削除する場合は`Clear-SavedTokens.cmd`をダブルクリックし、その後`Start-GitLabMigration.cmd`を起動して新しいTokenを入力します。GitLab側でTokenを失効してもWindowsの保存値は自動削除されないため、両方を実施してください。
 
 個人Project移行では、投稿者が移行先アカウントへ集約され、後から再割り当てできません。画面に一覧表示された全Projectとこの制約を確認した場合だけ進めます。
 
@@ -74,7 +76,7 @@ Manifestとレポートは、展開したフォルダー内の`work\manifests`�
 
 個人Project移行では、同じ展開フォルダーの`Start-GitLabMigration.cmd`をもう一度起動すると未完了Manifestを検出します。「続きから再開」を選ぶと、完了済みProjectをスキップして未完了Projectから処理します。移行元・移行先Tokenは初回と同じ本人アカウントのものを入力してください。
 
-v1.3.0またはv1.3.1で失敗してv1.3.2へ更新する場合は、旧フォルダーを削除せず、新しい展開フォルダーへ旧フォルダーの`work`フォルダー全体をコピーしてから起動します。ManifestやExport Archiveを個別に編集しないでください。
+v1.3.0、v1.3.1、v1.3.2のいずれかで失敗してv1.3.3へ更新する場合は、旧フォルダーを削除せず、新しい展開フォルダーへ旧フォルダーの`work`フォルダー全体をコピーしてから起動します。ManifestやExport Archiveを個別に編集しないでください。
 
 Group移行は自動再開に対応していません。同じ操作を再実行せず、[トラブルシューティング](troubleshooting.md)に従って情報を保存し、移行責任者へ連絡します。
 

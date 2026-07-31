@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -12,12 +13,18 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
+
+try:
+    from .credential_store import CredentialStoreError, WindowsCredentialStore
+except ImportError:
+    from credential_store import CredentialStoreError, WindowsCredentialStore
 
 InputFunction = Callable[[str], str]
 SECRET_KEYS = ("SOURCE_GITLAB_TOKEN", "DESTINATION_GITLAB_TOKEN")
 SETTINGS_FILENAME = "migration-settings.json"
+CREDENTIAL_TARGET_PREFIX = "gitlab-group-migrator"
 ALLOWED_SETTINGS_KEYS = {
     "source_gitlab_url",
     "destination_gitlab_url",
@@ -28,6 +35,19 @@ ALLOWED_SETTINGS_KEYS = {
 
 class WizardError(RuntimeError):
     """利用者が修正可能なウィザードのエラーを表す。"""
+
+
+class TokenCredentialStore(Protocol):
+    """Token保存先に必要な操作を定義する。"""
+
+    def read(self, target: str) -> str | None:
+        """保存値を読み取る。"""
+
+    def write(self, target: str, token: str) -> None:
+        """Tokenを保存する。"""
+
+    def delete(self, target: str) -> bool:
+        """保存値を削除する。"""
 
 
 def configure_console() -> None:
@@ -186,6 +206,84 @@ def validate_url(value: str) -> str:
     if parsed.path.rstrip("/").endswith("/api/v4"):
         raise WizardError("GitLab URLには/api/v4を含めないでください")
     return normalized
+
+
+def credential_target(role: str, gitlab_url: str) -> str:
+    """接続先と役割からWindows資格情報のTarget名を生成する。
+
+    Args:
+        role: sourceまたはdestination。
+        gitlab_url: 検証済みGitLab URL。
+
+    Returns:
+        URL自体を含まない安定したTarget名。
+
+    Raises:
+        ValueError: 未知の役割を指定した場合。
+    """
+    if role not in {"source", "destination"}:
+        raise ValueError(f"未知のToken役割です: {role}")
+    url_hash = hashlib.sha256(gitlab_url.encode("utf-8")).hexdigest()
+    return f"{CREDENTIAL_TARGET_PREFIX}:{role}:{url_hash}"
+
+
+def create_credential_store() -> TokenCredentialStore | None:
+    """Windows資格情報マネージャーを利用可能なら初期化する。
+
+    Returns:
+        利用可能な資格情報Store。利用できない場合はNone。
+    """
+    try:
+        return WindowsCredentialStore()
+    except CredentialStoreError as exc:
+        print(f"\n注意: {exc}。Tokenは今回だけ使用します。")
+        return None
+
+
+def _credential_targets(
+    source_url: str,
+    destination_url: str,
+) -> dict[str, str]:
+    """移行元・移行先Tokenの資格情報Target名を返す。
+
+    Args:
+        source_url: 移行元GitLab URL。
+        destination_url: 移行先GitLab URL。
+
+    Returns:
+        環境変数名をKey、資格情報Target名を値とする辞書。
+    """
+    return {
+        "SOURCE_GITLAB_TOKEN": credential_target("source", source_url),
+        "DESTINATION_GITLAB_TOKEN": credential_target(
+            "destination",
+            destination_url,
+        ),
+    }
+
+
+def clear_saved_tokens(
+    *,
+    source_url: str,
+    destination_url: str,
+    credential_store: TokenCredentialStore,
+) -> int:
+    """現在の接続先用に保存されたTokenを削除する。
+
+    Args:
+        source_url: 移行元GitLab URL。
+        destination_url: 移行先GitLab URL。
+        credential_store: Token保存先。
+
+    Returns:
+        削除した資格情報の件数。
+    """
+    targets = _credential_targets(source_url, destination_url)
+    deleted = 0
+    for target in targets.values():
+        if credential_store.delete(target):
+            deleted += 1
+    return deleted
 
 
 def load_distribution_settings(bundle_directory: Path) -> dict[str, object] | None:
@@ -778,12 +876,14 @@ def collect_environment(
     *,
     settings: Mapping[str, object] | None = None,
     input_function: InputFunction = input,
+    credential_store: TokenCredentialStore | None = None,
 ) -> dict[str, str]:
     """接続情報とTokenを対話入力から作る。
 
     Args:
         settings: 配布担当者が設定した接続先。未設定時は対話入力する。
         input_function: 通常項目の入力関数。
+        credential_store: Windows資格情報マネージャー。未指定時は保存しない。
 
     Returns:
         子Process専用の環境変数。
@@ -800,15 +900,64 @@ def collect_environment(
             settings["destination_gitlab_url"]
         )
         print("GitLab URLは配布担当者が設定済みです。画面やログへ表示しません。")
-    print("\nTokenは画面に表示されず、ファイルにも保存されません。")
-    environment["SOURCE_GITLAB_TOKEN"] = getpass.getpass(
-        "移行元Access Token（api scope、Owner相当）: "
-    ).strip()
-    environment["DESTINATION_GITLAB_TOKEN"] = getpass.getpass(
-        "移行先Access Token（api scope、Group作成・Import権限）: "
-    ).strip()
+    targets = _credential_targets(
+        environment["SOURCE_GITLAB_URL"],
+        environment["DESTINATION_GITLAB_URL"],
+    )
+    saved_tokens: dict[str, str] = {}
+    if credential_store is not None:
+        try:
+            saved_tokens = {
+                key: token
+                for key, target in targets.items()
+                if (token := credential_store.read(target))
+            }
+        except CredentialStoreError as exc:
+            print(
+                f"\n注意: 保存済みTokenを読み取れませんでした: {exc}"
+                "\n今回はTokenを入力してください。"
+            )
+            credential_store = None
+    if len(saved_tokens) == len(SECRET_KEYS):
+        environment.update(saved_tokens)
+        print(
+            "\nWindows資格情報マネージャーの保存済みTokenを使用します。"
+            "\nTokenを変更する場合はClear-SavedTokens.cmdを実行してください。"
+        )
+    else:
+        print(
+            "\nTokenは画面に表示されず、配布フォルダー内のファイルにも保存されません。"
+        )
+        environment["SOURCE_GITLAB_TOKEN"] = saved_tokens.get(
+            "SOURCE_GITLAB_TOKEN"
+        ) or getpass.getpass(
+            "移行元Access Token（api scope、Owner相当）: "
+        ).strip()
+        environment["DESTINATION_GITLAB_TOKEN"] = saved_tokens.get(
+            "DESTINATION_GITLAB_TOKEN"
+        ) or getpass.getpass(
+            "移行先Access Token（api scope、Group作成・Import権限）: "
+        ).strip()
     if not environment["SOURCE_GITLAB_TOKEN"] or not environment["DESTINATION_GITLAB_TOKEN"]:
         raise WizardError("Access Tokenは空にできません")
+    if credential_store is not None and len(saved_tokens) < len(SECRET_KEYS):
+        should_save = prompt_yes_no(
+            "次回から入力を省略するため、TokenをWindows資格情報マネージャーへ保存しますか",
+            default=True,
+            input_function=input_function,
+        )
+        if should_save:
+            try:
+                for key, target in targets.items():
+                    credential_store.write(target, environment[key])
+            except CredentialStoreError as exc:
+                print(
+                    f"注意: TokenをWindows資格情報マネージャーへ保存できませんでした: {exc}"
+                )
+            else:
+                print(
+                    "Tokenを現在のWindowsユーザーの資格情報マネージャーへ保存しました。"
+                )
     prompt_for_ca_bundle = (
         settings is None or bool(settings.get("prompt_for_ca_bundle"))
     )
@@ -837,11 +986,16 @@ def collect_environment(
     return environment
 
 
-def execute_wizard(*, input_function: InputFunction = input) -> int:
+def execute_wizard(
+    *,
+    input_function: InputFunction = input,
+    credential_store: TokenCredentialStore | None = None,
+) -> int:
     """対話式の事前診断と移行を実行する。
 
     Args:
         input_function: 通常項目の入力関数。
+        credential_store: Token保存先。
 
     Returns:
         Process終了Code。
@@ -851,6 +1005,7 @@ def execute_wizard(*, input_function: InputFunction = input) -> int:
     environment = collect_environment(
         settings=settings,
         input_function=input_function,
+        credential_store=credential_store,
     )
     scope = select_migration_scope(input_function=input_function)
     if scope == "personal_projects":
@@ -1014,11 +1169,56 @@ def execute_wizard(*, input_function: InputFunction = input) -> int:
     return 0
 
 
+def execute_clear_saved_tokens(
+    *,
+    bundle_directory: Path,
+    credential_store: TokenCredentialStore,
+    input_function: InputFunction = input,
+) -> int:
+    """現在の配布設定に対応する保存済みTokenを削除する。
+
+    Args:
+        bundle_directory: 展開済み配布Directory。
+        credential_store: Token保存先。
+        input_function: 通常項目の入力関数。
+
+    Returns:
+        Process終了Code。
+    """
+    settings = load_distribution_settings(bundle_directory)
+    if settings is None:
+        source_url = validate_url(
+            prompt_required("移行元GitLab URL", input_function=input_function)
+        )
+        destination_url = validate_url(
+            prompt_required("移行先GitLab URL", input_function=input_function)
+        )
+    else:
+        source_url = str(settings["source_gitlab_url"])
+        destination_url = str(settings["destination_gitlab_url"])
+    deleted = clear_saved_tokens(
+        source_url=source_url,
+        destination_url=destination_url,
+        credential_store=credential_store,
+    )
+    if deleted:
+        print(f"保存済みTokenを{deleted}件削除しました。")
+    else:
+        print("この接続先用の保存済みTokenはありません。")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """ウィザードの引数Parserを作成する。"""
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="GitLab移行を画面の質問に答えて進めるWindows用ウィザード"
     )
+    parser.add_argument(
+        "--clear-saved-tokens",
+        action="store_true",
+        help="現在の接続先用に保存されたAccess Tokenを削除",
+    )
+    return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1031,9 +1231,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         Process終了Code。
     """
     configure_console()
-    build_parser().parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
-        return execute_wizard()
+        credential_store = create_credential_store()
+        if args.clear_saved_tokens:
+            if credential_store is None:
+                raise WizardError(
+                    "Windows資格情報マネージャーを利用できないため削除できません"
+                )
+            return execute_clear_saved_tokens(
+                bundle_directory=Path(__file__).resolve().parent,
+                credential_store=credential_store,
+            )
+        return execute_wizard(credential_store=credential_store)
     except KeyboardInterrupt:
         print("\n操作を中止しました。")
         return 130
