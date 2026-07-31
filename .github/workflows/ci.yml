@@ -185,7 +185,7 @@ jobs:
           $clearCommand = (Get-ChildItem extracted -Recurse -Filter Clear-SavedTokens.cmd).FullName
           $configureCommand = (Get-ChildItem extracted -Recurse -Filter Configure-Distribution.cmd).FullName
           py -3 $bootstrap --verify-only
-          $wizardHelp = py -3 $wizard --help
+          $wizardHelp = (py -3 $wizard --help) -join "`n"
           if ($wizardHelp -notmatch "--clear-saved-tokens") {
             throw "migration_wizard.py does not expose --clear-saved-tokens"
           }
