@@ -72,6 +72,7 @@ class ProjectExporter:
             f"/projects/{project_id}/export/download",
             expected={200},
             started=started,
+            timeout_seconds=self.timeout_seconds,
         )
         output_dir.mkdir(parents=True, exist_ok=True)
         path = str(project.get("path") or project_id)
@@ -99,6 +100,7 @@ class ProjectExporter:
         *,
         expected: set[int],
         started: float,
+        timeout_seconds: float | None = None,
     ) -> ApiResponse:
         """429をExport全体のTimeoutまで待って再試行する。
 
@@ -111,6 +113,7 @@ class ProjectExporter:
                 method,
                 path,
                 expected={*expected, 429},
+                timeout_seconds=timeout_seconds,
             )
             if response.status != 429:
                 return response

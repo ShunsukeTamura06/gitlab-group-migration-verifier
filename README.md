@@ -18,6 +18,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 - 相対Namespaceに基づくProject配置
 - 非同期Export / Importの待機、API timeout、指数バックオフ
 - Project Exportの429レート制限待機と個人Project移行のManifest再開
+- 大容量ArchiveのUpload / Downloadへ移行Timeoutを適用
 - Archiveの形式、展開Path、サイズ、SHA-256検査
 - 既存Group / Projectを上書きしない安全設計
 - 接続、認証、Version、Project Import設定の非破壊Preflight
@@ -45,7 +46,7 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 配布担当者:
 
-1. [v1.3.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.3)から公開Windows ZIPを取得します。
+1. [v1.3.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.4)から公開Windows ZIPを取得します。
 2. ZIPを展開し、`Configure-Distribution.cmd`をダブルクリックします。
 3. 配布担当者のPCだけで実際の移行元・移行先URLを入力します。
 4. 生成された社内専用ZIPとChecksumを承認済み経路で配布します。
@@ -66,19 +67,19 @@ GitLabのGroup階層と配下Projectを、ファイルExport / Importで旧環�
 
 ### macOS / Linux・上級者向け
 
-利用者は変更される`main`ではなく、[v1.3.3 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.3)のwheelをVersion固定で使用してください。
+利用者は変更される`main`ではなく、[v1.3.4 Release](https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/tag/v1.3.4)のwheelをVersion固定で使用してください。
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.3/gitlab_group_migrator-1.3.3-py3-none-any.whl
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.4/gitlab_group_migrator-1.3.4-py3-none-any.whl
 curl -LO \
-  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.3/SHA256SUMS
+  https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier/releases/download/v1.3.4/SHA256SUMS
 
 sha256sum --check --ignore-missing SHA256SUMS
-python -m pip install ./gitlab_group_migrator-1.3.3-py3-none-any.whl
+python -m pip install ./gitlab_group_migrator-1.3.4-py3-none-any.whl
 gitlab-migrator --version
 ```
 
@@ -86,7 +87,7 @@ macOSでwheelだけのチェックサムを確認する場合は`grep 'py3-none-
 
 ```bash
 python -m pip install \
-  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.3.3'
+  'git+https://github.com/ShunsukeTamura06/gitlab-group-migration-verifier.git@v1.3.4'
 ```
 
 ## 接続設定
@@ -158,6 +159,8 @@ gitlab-migrator --poll-interval 20 --timeout 7200 \
 移行先に同じProject Pathが存在する場合、その既存Projectは上書きせずスキップし、残りだけを移行します。Preflight、Manifest、レポートへスキップ対象を記録します。既存Projectと移行元Projectの内容比較や統合は行いません。個人NamespaceへのImportでは投稿者マッピングを保持できず、IssueやMerge Request等の投稿者は移行先アカウントへ集約され、後から再割り当てできません。
 
 個人Project移行が失敗または中断した場合は、同じManifestを指定して再開します。完了済みProjectは再Importせず、未完了Projectだけを処理します。
+
+`--timeout`はExport / Import完了待ちだけでなく、大容量ArchiveのUpload / Downloadにも適用されます。Windowsウィザードは7200秒を指定します。`GITLAB_API_TIMEOUT`は一覧取得等の通常API通信にだけ使用します。
 
 ```bash
 gitlab-migrator --poll-interval 20 --timeout 7200 \

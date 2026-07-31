@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .client import GitLabClient
 from .errors import ArchiveValidationError, ExistingGroupError, GitLabApiError
@@ -83,6 +84,7 @@ class GroupImporter:
             fields,
             file_field="file",
             file_path=archive,
+            timeout_seconds=self.timeout_seconds,
         )
         payload = response.json()
         if not isinstance(payload, dict):

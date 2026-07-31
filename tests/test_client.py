@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import urllib.error
 
 from gitlab_migrator.client import ApiResponse, GitLabClient
 from gitlab_migrator.config import GitLabConfig
@@ -29,6 +30,41 @@ class GitLabClientTest(unittest.TestCase):
             sleep=sleeps.append,
         )
         self.assertEqual({"id": 1}, client.get_json("/groups/1"))
+        self.assertEqual(1, len(sleeps))
+
+    def test_retries_ssl_write_failure_with_transfer_timeout(self) -> None:
+        """大容量転送の一時的なSSL write失敗を専用Timeoutで再試行する。"""
+        timeouts: list[float] = []
+        sleeps: list[float] = []
+
+        def transport(_request: object, timeout: float) -> ApiResponse:
+            timeouts.append(timeout)
+            if len(timeouts) == 1:
+                raise urllib.error.URLError(
+                    "The operation did not complete (write)"
+                )
+            return ApiResponse(202, {}, b"{}")
+
+        client = GitLabClient(
+            GitLabConfig(
+                "https://gitlab.example",
+                "token",
+                timeout_seconds=30,
+                max_retries=1,
+            ),
+            transport=transport,
+            sleep=sleeps.append,
+        )
+
+        response = client.request(
+            "POST",
+            "/projects/import",
+            expected={202},
+            timeout_seconds=7200,
+        )
+
+        self.assertEqual(202, response.status)
+        self.assertEqual([7200, 7200], timeouts)
         self.assertEqual(1, len(sleeps))
 
     def test_raises_status_and_limited_body(self) -> None:

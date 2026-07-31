@@ -45,6 +45,10 @@ Preflightの`max_import_size_mib`と`max_decompressed_archive_size_mib`を確認
 
 無条件にTimeoutを延長しません。Sidekiq、Gitaly、Disk、Database Timeout、対象データ量を確認し、原因を解消して新しいDestination Pathで再試行します。
 
+### `_ssl.c`の`did not complete (write)`で個人Project移行が止まる
+
+Archive Uploadに通常API用の30秒通信Timeoutが適用されていたv1.3.3以前の問題です。v1.3.4以降へ更新し、旧展開フォルダーの`work`フォルダー全体を新しい社内配布フォルダーへコピーしてから、「アカウント直下の全Project」→「続きから再開」を選びます。新規移行を開始したり、ManifestやArchiveを個別に編集したりしないでください。完了済みProjectは再Importしません。
+
 ### Destination Pathが存在する
 
 既存Group / Projectは自動上書きしません。意図的な再利用でない限り別Pathを指定します。削除が必要な場合は、このツール外の承認済み手順で行います。

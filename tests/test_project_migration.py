@@ -21,13 +21,15 @@ class ProjectExportClient:
         """アーカイブとStatus列を保持する。"""
         self.archive = archive
         self.statuses = ["started", "finished"]
+        self.requests: list[tuple[str, str, object]] = []
 
     def get_json(self, path: str) -> dict[str, object]:
         """Project情報を返す。"""
         return {"id": 2, "path": "api-service"}
 
-    def request(self, method: str, path: str, **_kwargs: object) -> ApiResponse:
+    def request(self, method: str, path: str, **kwargs: object) -> ApiResponse:
         """Export開始、Status、Downloadに応答する。"""
+        self.requests.append((method, path, kwargs.get("timeout_seconds")))
         if method == "POST":
             return ApiResponse(202, {}, b"")
         if path.endswith("/export"):
@@ -82,6 +84,7 @@ class ProjectImportClient:
         self.failed_relations = failed_relations or []
         self.full_path = full_path
         self.submitted_fields: dict[str, object] = {}
+        self.upload_timeout: object = None
 
     @staticmethod
     def encode_id(value: object) -> str:
@@ -110,9 +113,10 @@ class ProjectImportClient:
             "path_with_namespace": self.full_path,
         }
 
-    def post_multipart(self, *args: object, **_kwargs: object) -> ApiResponse:
+    def post_multipart(self, *args: object, **kwargs: object) -> ApiResponse:
         """Project Import受付レスポンスを返す。"""
         self.submitted_fields = dict(args[1])  # type: ignore[arg-type]
+        self.upload_timeout = kwargs.get("timeout_seconds")
         return ApiResponse(202, {}, b'{"id":1,"import_status":"scheduled"}')
 
 
@@ -123,9 +127,10 @@ class ProjectMigrationTest(unittest.TestCase):
         """Status APIがfinishedになってからアーカイブを保存する。"""
         archive = tar_gz_bytes("project.json")
         clock = Clock()
+        client = ProjectExportClient(archive)
         with tempfile.TemporaryDirectory() as directory:
             result = ProjectExporter(
-                ProjectExportClient(archive),  # type: ignore[arg-type]
+                client,  # type: ignore[arg-type]
                 poll_interval_seconds=2,
                 timeout_seconds=10,
                 sleep=clock.sleep,
@@ -133,6 +138,7 @@ class ProjectMigrationTest(unittest.TestCase):
             ).export(2, Path(directory))
             self.assertEqual(2, clock.value)
             self.assertEqual(len(archive), result.archive_size)
+            self.assertEqual(10, client.requests[-1][2])
 
     def test_waits_sixty_seconds_when_export_download_returns_429(self) -> None:
         """Retry-AfterなしのDownload制限は既定周期の60秒待機する。"""
@@ -247,6 +253,7 @@ class ProjectMigrationTest(unittest.TestCase):
             {"name": "api-service", "path": "api-service"},
             client.submitted_fields,
         )
+        self.assertEqual(10, client.upload_timeout)
 
 
 if __name__ == "__main__":
