@@ -515,6 +515,56 @@ class MigrationWizardTest(unittest.TestCase):
         migration_arguments = migrate.call_args.args[0]
         self.assertIn("migrate-personal-projects", migration_arguments)
 
+    def test_personal_project_migration_resumes_latest_failed_manifest(self) -> None:
+        """未完了Manifestがあれば新規実行せず続きから再開する。"""
+        report_result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="{}",
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest_path = (
+                root
+                / "work"
+                / "manifests"
+                / "personal-projects-20260731-120000.json"
+            )
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "migration_type": "personal_projects",
+                        "status": "failed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(
+                    migration_wizard,
+                    "run_cli",
+                    return_value=report_result,
+                ),
+                patch.object(
+                    migration_wizard,
+                    "run_cli_with_progress",
+                    return_value=0,
+                ) as resume,
+            ):
+                exit_code = migration_wizard.execute_personal_project_migration(
+                    environment={},
+                    bundle_directory=root,
+                    settings={"required_free_gib": 50},
+                    input_function=lambda _: "1",
+                )
+
+        self.assertEqual(0, exit_code)
+        resume_arguments = resume.call_args.args[0]
+        self.assertIn("resume-personal-projects", resume_arguments)
+        self.assertIn(str(manifest_path), resume_arguments)
+
     def test_non_https_remote_url_is_rejected(self) -> None:
         """社内GitLab接続でTLS検証を省略させない。"""
         with self.assertRaisesRegex(migration_wizard.WizardError, "https"):

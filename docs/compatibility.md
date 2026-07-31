@@ -87,11 +87,11 @@ Group配下へImportする場合、Issue、Merge Request、Comment等の作成�
 - 同名Group / Projectの自動統合
 - Destinationの既存Group / Projectの上書き
 - SourceまたはDestinationの自動削除
-- 途中停止後の自動Resume
+- Groupツリー移行の途中停止後Resume
 - DNS、案内、権限切替などのCutover
 - Backup、Restore、変更凍結、切り戻し
 
-途中で失敗した場合は同じ操作を無条件で再実行せず、Manifestと作成済みDestinationリソースを保全して移行責任者へ連絡してください。
+個人Project一括移行はManifestから再開でき、完了済みProjectをスキップします。Groupツリー移行で失敗した場合は同じ操作を無条件で再実行せず、Manifestと作成済みDestinationリソースを保全して移行責任者へ連絡してください。
 
 ## Version互換性
 

@@ -80,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="アカウント直下の全Projectを移行先アカウント直下へ移行",
     )
     personal_migration.add_argument("--manifest", type=Path, required=True)
+    personal_resume = subparsers.add_parser(
+        "resume-personal-projects",
+        help="Manifestから未完了の個人Project一括移行を再開",
+    )
+    personal_resume.add_argument("--manifest", type=Path, required=True)
     subparsers.add_parser("import-settings", help="移行先のImport関連設定を表示")
     subparsers.add_parser(
         "enable-project-import", help="移行先でgitlab_project Import Sourceを有効化"
@@ -282,6 +287,15 @@ def run(args: argparse.Namespace) -> dict[str, Any] | list[Any]:
             poll_interval_seconds=args.poll_interval,
             timeout_seconds=args.timeout,
         ).migrate()
+    if args.command == "resume-personal-projects":
+        return PersonalProjectMigrator(
+            source_client(),
+            destination_client(),
+            export_dir=DEFAULT_PROJECT_EXPORT_DIR,
+            manifest_path=args.manifest,
+            poll_interval_seconds=args.poll_interval,
+            timeout_seconds=args.timeout,
+        ).resume()
     if args.command == "import-settings":
         settings = destination_client().get_json("/application/settings")
         return {

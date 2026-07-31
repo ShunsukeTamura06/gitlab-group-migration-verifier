@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-import unittest
+import hashlib
 import tempfile
+import unittest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from gitlab_migrator.config import GitLabConfig
-from gitlab_migrator.errors import GitLabApiError
+from gitlab_migrator.errors import GitLabApiError, MigratorError
+from gitlab_migrator.manifest import ManifestStore
+from gitlab_migrator.models import ProjectExportResult, ProjectImportResult
 from gitlab_migrator.personal_project_migrator import (
     PersonalProjectMigrator,
     list_personal_projects,
     personal_projects_preflight,
 )
-from gitlab_migrator.models import ProjectExportResult, ProjectImportResult
+from tests.helpers import tar_gz_bytes
 
 
 class PersonalProjectClient:
@@ -247,6 +250,213 @@ class PersonalProjectMigrationTest(unittest.TestCase):
                 call.kwargs["personal_namespace_path"] == "destination-user"
                 for call in importer.return_value.import_project.call_args_list
             )
+        )
+
+    def test_resumes_old_manifest_without_reimporting_completed_projects(self) -> None:
+        """v1.3.0の失敗Manifestから未処理Projectだけを再開する。"""
+        projects = [
+            {
+                "id": 1,
+                "name": "Alpha",
+                "path": "alpha",
+                "path_with_namespace": "source-user/alpha",
+            },
+            {
+                "id": 705,
+                "name": "Beta",
+                "path": "beta",
+                "path_with_namespace": "source-user/beta",
+            },
+        ]
+        source = PersonalProjectClient("source-user", projects)
+        destination = PersonalProjectClient(
+            "destination-user",
+            [],
+            existing_paths={"destination-user/alpha"},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "personal-projects-old.json"
+            ManifestStore(manifest_path).save(
+                {
+                    "tool": {
+                        "name": "gitlab-group-migrator",
+                        "version": "1.3.0",
+                    },
+                    "migration_type": "personal_projects",
+                    "state": "failed",
+                    "status": "failed",
+                    "source": {
+                        "username": "source-user",
+                        "project_count": 2,
+                    },
+                    "destination": {"username": "destination-user"},
+                    "projects": [
+                        {
+                            "source_project_id": 1,
+                            "source_path": "source-user/alpha",
+                            "destination_path": "destination-user/alpha",
+                            "migration_status": "import_finished",
+                            "verification_status": "success",
+                        }
+                    ],
+                    "timestamps": {
+                        "started_at": "2026-07-31T00:00:00+00:00",
+                        "finished_at": "2026-07-31T00:01:00+00:00",
+                    },
+                }
+            )
+            archive = root / "project.tar.gz"
+            archive.write_bytes(b"archive")
+            exporter_result = ProjectExportResult(
+                project_id=705,
+                archive_path=archive,
+                archive_size=7,
+                sha256="b" * 64,
+            )
+            importer_result = ProjectImportResult(
+                project_id=12,
+                full_path="destination-user/beta",
+                response={},
+                resolved_by="response_id",
+            )
+            with (
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectExporter"
+                ) as exporter,
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectImporter"
+                ) as importer,
+            ):
+                exporter.return_value.export.return_value = exporter_result
+                importer.return_value.import_project.return_value = importer_result
+                result = PersonalProjectMigrator(  # type: ignore[arg-type]
+                    source,
+                    destination,
+                    export_dir=root / "exports",
+                    manifest_path=manifest_path,
+                ).resume()
+
+        self.assertEqual("success", result["status"])
+        self.assertEqual(2, result["verification"]["matched_project_count"])
+        exporter.return_value.export.assert_called_once()
+        self.assertEqual(
+            705,
+            exporter.return_value.export.call_args.args[0],
+        )
+        importer.return_value.import_project.assert_called_once()
+        self.assertEqual(
+            "beta",
+            importer.return_value.import_project.call_args.kwargs["path"],
+        )
+
+    def test_resume_rejects_different_destination_token_account(self) -> None:
+        """再開時に移行先Tokenの本人が変わっていたら停止する。"""
+        source = PersonalProjectClient("source-user", [])
+        destination = PersonalProjectClient("other-user", [])
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "personal-projects-old.json"
+            ManifestStore(manifest_path).save(
+                {
+                    "migration_type": "personal_projects",
+                    "state": "failed",
+                    "status": "failed",
+                    "source": {
+                        "username": "source-user",
+                        "project_count": 0,
+                    },
+                    "destination": {"username": "destination-user"},
+                    "projects": [],
+                    "timestamps": {},
+                }
+            )
+
+            with self.assertRaisesRegex(
+                MigratorError,
+                "移行先TokenのアカウントがManifestと一致しません",
+            ):
+                PersonalProjectMigrator(  # type: ignore[arg-type]
+                    source,
+                    destination,
+                    export_dir=Path(directory) / "exports",
+                    manifest_path=manifest_path,
+                ).resume()
+
+    def test_resume_reuses_valid_archive_after_bundle_directory_changes(self) -> None:
+        """旧Pathが無効でもコピー済みArchiveを再Exportせず利用する。"""
+        projects = [
+            {
+                "id": 1,
+                "name": "Alpha",
+                "path": "alpha",
+                "path_with_namespace": "source-user/alpha",
+            }
+        ]
+        source = PersonalProjectClient("source-user", projects)
+        destination = PersonalProjectClient("destination-user", [])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_dir = root / "exports"
+            export_dir.mkdir()
+            archive = export_dir / "1-alpha.tar.gz"
+            archive.write_bytes(tar_gz_bytes("project.json"))
+            manifest_path = root / "personal-projects-old.json"
+            ManifestStore(manifest_path).save(
+                {
+                    "migration_type": "personal_projects",
+                    "state": "failed",
+                    "status": "failed",
+                    "source": {
+                        "username": "source-user",
+                        "project_count": 1,
+                    },
+                    "destination": {"username": "destination-user"},
+                    "projects": [
+                        {
+                            "source_project_id": 1,
+                            "source_path": "source-user/alpha",
+                            "destination_path": "destination-user/alpha",
+                            "archive": {
+                                "archive_path": "/old/folder/1-alpha.tar.gz",
+                                "archive_size": archive.stat().st_size,
+                                "sha256": hashlib.sha256(
+                                    archive.read_bytes()
+                                ).hexdigest(),
+                            },
+                            "migration_status": "export_finished",
+                            "verification_status": "not_started",
+                        }
+                    ],
+                    "timestamps": {},
+                }
+            )
+            importer_result = ProjectImportResult(
+                project_id=11,
+                full_path="destination-user/alpha",
+                response={},
+                resolved_by="response_id",
+            )
+            with (
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectExporter"
+                ) as exporter,
+                patch(
+                    "gitlab_migrator.personal_project_migrator.ProjectImporter"
+                ) as importer,
+            ):
+                importer.return_value.import_project.return_value = importer_result
+                result = PersonalProjectMigrator(  # type: ignore[arg-type]
+                    source,
+                    destination,
+                    export_dir=export_dir,
+                    manifest_path=manifest_path,
+                ).resume()
+
+        self.assertEqual("success", result["status"])
+        exporter.return_value.export.assert_not_called()
+        self.assertEqual(
+            archive,
+            importer.return_value.import_project.call_args.args[0],
         )
 
 

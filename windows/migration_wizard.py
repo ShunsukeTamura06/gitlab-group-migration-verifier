@@ -490,6 +490,76 @@ def parse_personal_projects(output: str) -> list[dict[str, Any]]:
     return projects
 
 
+def find_resumable_personal_manifests(bundle_directory: Path) -> list[Path]:
+    """再開可能な個人Project移行Manifestを新しい順で返す。"""
+    manifest_directory = bundle_directory / "work" / "manifests"
+    if not manifest_directory.is_dir():
+        return []
+    resumable: list[Path] = []
+    for path in manifest_directory.glob("personal-projects-*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise WizardError(f"Manifestを読み取れません: {path}") from exc
+        if (
+            isinstance(payload, dict)
+            and payload.get("migration_type") == "personal_projects"
+            and payload.get("status") != "success"
+        ):
+            resumable.append(path)
+    return sorted(
+        resumable,
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def execute_personal_project_resume(
+    *,
+    environment: Mapping[str, str],
+    bundle_directory: Path,
+    manifest_path: Path,
+) -> int:
+    """未完了の個人Project移行を同じManifestから再開する。"""
+    report_path = (
+        bundle_directory
+        / "work"
+        / "reports"
+        / f"{manifest_path.stem}-resumed.md"
+    )
+    print("\n未完了地点から個人Project移行を再開します。")
+    print("完了済みProjectは再Importしません。")
+    migration_exit_code = run_cli_with_progress(
+        [
+            "--poll-interval",
+            "20",
+            "--timeout",
+            "7200",
+            "resume-personal-projects",
+            "--manifest",
+            str(manifest_path),
+        ],
+        environment=environment,
+        bundle_directory=bundle_directory,
+    )
+    if migration_exit_code != 0:
+        print("\n再開処理は完了していません。同じManifestを保全してください。")
+        print(f"  Manifest: {manifest_path}")
+        return migration_exit_code
+    report_process = run_cli(
+        ["report", "--manifest", str(manifest_path), "--output", str(report_path)],
+        environment=environment,
+        bundle_directory=bundle_directory,
+    )
+    if report_process.returncode != 0:
+        print(f"\n移行は終了しましたがレポート生成に失敗しました: {manifest_path}")
+        return report_process.returncode
+    print("\n個人Projectの一括移行を未完了地点から完了しました。")
+    print(f"  Manifest: {manifest_path}")
+    print(f"  レポート: {report_path}")
+    return 0
+
+
 def execute_personal_project_migration(
     *,
     environment: Mapping[str, str],
@@ -498,6 +568,28 @@ def execute_personal_project_migration(
     input_function: InputFunction,
 ) -> int:
     """アカウント直下の全Projectを移行先アカウント直下へ移行する。"""
+    resumable = find_resumable_personal_manifests(bundle_directory)
+    if resumable:
+        manifest_path = resumable[0]
+        print("\n未完了の個人Project移行が見つかりました。")
+        print(f"  Manifest: {manifest_path}")
+        if len(resumable) > 1:
+            print(f"  他にも未完了Manifestが{len(resumable) - 1}件あります。")
+            print("  最新のManifestを再開対象にします。")
+        print("  1. 続きから再開")
+        print("  2. 何もせず終了")
+        selected = prompt_integer("番号", minimum=1, input_function=input_function)
+        if selected == 1:
+            return execute_personal_project_resume(
+                environment=environment,
+                bundle_directory=bundle_directory,
+                manifest_path=manifest_path,
+            )
+        if selected == 2:
+            print("再開を中止しました。GitLabへの変更は行っていません。")
+            return 0
+        raise WizardError("再開操作は1または2を選んでください")
+
     print("\n移行元アカウント直下のProject一覧を取得しています...")
     list_process = run_cli(
         ["list-personal-projects"],

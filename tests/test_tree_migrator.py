@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
+from gitlab_migrator import __version__
 from gitlab_migrator.client import ApiResponse
 from gitlab_migrator.errors import ArchiveValidationError
 from gitlab_migrator.group_exporter import GroupExporter
 from gitlab_migrator.manifest import ManifestStore
 from gitlab_migrator.tree_migrator import TreeBundleExporter, TreeBundleImporter
-from gitlab_migrator import __version__
-
 from tests.helpers import Clock, tar_gz_bytes
 
 
@@ -69,7 +69,7 @@ class TreeExportClient:
             ]
         if path == "/groups/2/subgroups":
             return []
-        if path.endswith("/labels") or path.endswith("/milestones"):
+        if path.endswith(("/labels", "/milestones")):
             return []
         if path == "/groups/1/projects":
             return [self._project(10, "source/root-project", 1)]
@@ -78,11 +78,17 @@ class TreeExportClient:
         raise AssertionError(path)
 
     def request(self, method: str, path: str, **_kwargs: object) -> ApiResponse:
-        """Export開始とDownloadへ応答する。"""
+        """Export開始、Status、Downloadへ応答する。"""
         if method == "POST":
             return ApiResponse(202, {}, b"")
         if path.endswith("/download"):
             return ApiResponse(200, {}, self.archive)
+        if path.endswith("/export"):
+            return ApiResponse(
+                200,
+                {},
+                json.dumps({"export_status": "finished"}).encode(),
+            )
         raise AssertionError((method, path))
 
     @staticmethod
