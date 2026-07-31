@@ -9,7 +9,7 @@ from typing import Any
 
 from . import __version__
 from .client import GitLabClient
-from .errors import GitLabApiError, MigratorError
+from .errors import ExistingGroupError, GitLabApiError, MigratorError
 from .group_exporter import GroupExporter
 from .manifest import ManifestStore
 from .preflight import PreflightChecker
@@ -103,12 +103,20 @@ def personal_projects_preflight(
         checks.append(
             {
                 "name": "destination.personal_project_paths",
-                "status": "failed" if collisions else "passed",
+                "status": "warning" if collisions else "passed",
                 "detail": {
                     "destination_username": destination_username,
                     "collisions": collisions,
+                    "behavior": "skip_existing",
                 },
             }
+        )
+    if collisions:
+        warnings.append(
+            f"移行先に同じPathのProjectが{len(collisions)}件あります。"
+            "既存Projectは上書き・内容比較せずスキップし、"
+            "残りのProjectだけを移行します: "
+            + ", ".join(collisions)
         )
     warnings.append(
         "個人NamespaceへのImportでは投稿者マッピングを保持できません。"
@@ -120,6 +128,9 @@ def personal_projects_preflight(
     result["migration_type"] = "personal_projects"
     result["source_project_count"] = len(projects)
     result["destination_username"] = destination_username
+    result["collision_count"] = len(collisions)
+    result["collisions"] = collisions
+    result["migration_candidate_count"] = len(projects) - len(collisions)
     return result
 
 
@@ -246,6 +257,12 @@ class PersonalProjectMigrator:
                     if item.get("verification_status") == "success":
                         self._verify_completed_project(item, expected_full_path)
                         continue
+                    if item.get("migration_status") == "skipped_existing":
+                        existing_project = self._find_destination_project(
+                            expected_full_path
+                        )
+                        if existing_project is not None:
+                            continue
                 else:
                     item = {
                         "source_project_id": project_id,
@@ -258,18 +275,18 @@ class PersonalProjectMigrator:
                     records_by_id[project_id] = item
                     self.manifest_store.save(manifest)
 
-                existing_project = (
-                    self._find_destination_project(expected_full_path)
-                    if may_have_started_import
-                    else None
-                )
+                existing_project = self._find_destination_project(expected_full_path)
                 if existing_project is not None:
-                    self._finish_started_import(
-                        item,
-                        existing_project,
-                        expected_full_path=expected_full_path,
-                    )
-                    manifest["state"] = "project_imported"
+                    if may_have_started_import:
+                        self._finish_started_import(
+                            item,
+                            existing_project,
+                            expected_full_path=expected_full_path,
+                        )
+                        manifest["state"] = "project_imported"
+                    else:
+                        self._mark_existing_skipped(item, existing_project)
+                        manifest["state"] = "project_skipped"
                     self.manifest_store.save(manifest)
                     continue
 
@@ -292,16 +309,27 @@ class PersonalProjectMigrator:
                 item["migration_status"] = "import_started"
                 manifest["state"] = "project_import_started"
                 self.manifest_store.save(manifest)
-                import_result = ProjectImporter(
-                    self.destination,
-                    poll_interval_seconds=self.poll_interval_seconds,
-                    timeout_seconds=self.timeout_seconds,
-                ).import_project(
-                    archive_path,
-                    name=str(project["name"]),
-                    path=path,
-                    personal_namespace_path=destination_username,
-                )
+                try:
+                    import_result = ProjectImporter(
+                        self.destination,
+                        poll_interval_seconds=self.poll_interval_seconds,
+                        timeout_seconds=self.timeout_seconds,
+                    ).import_project(
+                        archive_path,
+                        name=str(project["name"]),
+                        path=path,
+                        personal_namespace_path=destination_username,
+                    )
+                except ExistingGroupError:
+                    existing_project = self._find_destination_project(
+                        expected_full_path
+                    )
+                    if existing_project is None:
+                        raise
+                    self._mark_existing_skipped(item, existing_project)
+                    manifest["state"] = "project_skipped"
+                    self.manifest_store.save(manifest)
+                    continue
                 item["import"] = asdict(import_result)
                 item["migration_status"] = "import_finished"
                 item["verification_status"] = (
@@ -314,15 +342,35 @@ class PersonalProjectMigrator:
             failures = [
                 item
                 for item in manifest["projects"]
-                if item["verification_status"] != "success"
+                if item["verification_status"] not in {"success", "skipped"}
+            ]
+            imported = [
+                item
+                for item in manifest["projects"]
+                if item["verification_status"] == "success"
+            ]
+            skipped = [
+                item
+                for item in manifest["projects"]
+                if item["verification_status"] == "skipped"
             ]
             manifest["state"] = "finished" if not failures else "failed"
-            manifest["status"] = "success" if not failures else "failed"
+            if failures:
+                manifest["status"] = "failed"
+            elif skipped:
+                manifest["status"] = "warning"
+            else:
+                manifest["status"] = "success"
             manifest["verification"] = {
                 "status": manifest["status"],
                 "source_project_count": len(source_projects),
-                "destination_project_count": len(manifest["projects"]),
-                "matched_project_count": len(manifest["projects"]) - len(failures),
+                "destination_project_count": len(imported) + len(skipped),
+                "matched_project_count": len(imported),
+                "imported_project_count": len(imported),
+                "skipped_project_count": len(skipped),
+                "skipped_projects": [
+                    str(item["destination_path"]) for item in skipped
+                ],
                 "failed_projects": [
                     str(item["destination_path"]) for item in failures
                 ],
@@ -438,6 +486,17 @@ class PersonalProjectMigrator:
         if not isinstance(project, dict) or not isinstance(project.get("id"), int):
             raise MigratorError("移行先Project取得APIの応答が不正です")
         return project
+
+    @staticmethod
+    def _mark_existing_skipped(
+        item: dict[str, Any],
+        existing_project: dict[str, Any],
+    ) -> None:
+        """既存の移行先Projectを上書きせずスキップとして記録する。"""
+        item["migration_status"] = "skipped_existing"
+        item["verification_status"] = "skipped"
+        item["skip_reason"] = "destination_path_exists"
+        item["destination_project_id"] = int(existing_project["id"])
 
     def _verify_completed_project(
         self,

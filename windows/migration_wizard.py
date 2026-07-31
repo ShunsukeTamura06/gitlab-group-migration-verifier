@@ -555,6 +555,7 @@ def execute_personal_project_resume(
         print(f"\n移行は終了しましたがレポート生成に失敗しました: {manifest_path}")
         return report_process.returncode
     print("\n個人Projectの一括移行を未完了地点から完了しました。")
+    print("既存のためスキップしたProjectと内容未比較の注意事項はレポートで確認してください。")
     print(f"  Manifest: {manifest_path}")
     print(f"  レポート: {report_path}")
     return 0
@@ -611,6 +612,10 @@ def execute_personal_project_migration(
         "IssueやMerge Request等の投稿者は移行先アカウントへ集約され、"
         "後から再割り当てできません。"
     )
+    print(
+        "移行先に同じPathのProjectがある場合は上書きせず、"
+        "内容を比較しないでスキップします。"
+    )
     print("\n実行内容を選んでください。")
     print("  1. 事前診断だけ")
     print("  2. 全Projectを移行")
@@ -653,7 +658,8 @@ def execute_personal_project_migration(
         print("\n事前診断のみ完了しました。GitLabへの変更は行っていません。")
         return 0
     confirmation = input_function(
-        "\n投稿者集約と全Project移行を了承する場合だけ PERSONAL と入力してください: "
+        "\n投稿者集約、既存Projectのスキップ、残りの全Project移行を"
+        "了承する場合だけ PERSONAL と入力してください: "
     ).strip()
     if confirmation != "PERSONAL":
         print("移行を中止しました。GitLabへの変更は行っていません。")
@@ -696,7 +702,8 @@ def execute_personal_project_migration(
     if report_process.returncode != 0:
         print(f"\n移行は終了しましたがレポート生成に失敗しました: {manifest_path}")
         return report_process.returncode
-    print("\n個人Projectの一括移行と自動照合が完了しました。")
+    print("\n個人Projectの一括移行処理が完了しました。")
+    print("既存のためスキップしたProjectと内容未比較の注意事項はレポートで確認してください。")
     print(f"  Manifest: {manifest_path}")
     print(f"  レポート: {report_path}")
     return 0
